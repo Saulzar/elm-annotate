@@ -1,0 +1,228 @@
+port module Main exposing (main)
+
+import Html exposing (..)
+import Html.Attributes exposing (..)
+import Html.Events exposing (..)
+
+
+import Bootstrap.Card as Card
+import Bootstrap.Grid as Grid
+
+import Bootstrap.Form as Form
+import Bootstrap.Form.Select as Select
+
+import Bootstrap.Accordion as Accordion
+
+import Bootstrap.Table as Table
+import Bootstrap.Tab as Tab
+import Bootstrap.Navbar as Navbar
+
+import Canvas
+import Dataset as D
+
+import FontAwesome.Web as FA
+
+import Input.Window as Window
+import Vector exposing (Position)
+
+main : Program Never Model Msg
+main =
+    Html.program
+        { view = view
+        , update = update
+        , subscriptions = subscriptions
+        , init = init
+        }
+
+
+-- You need to keep track of the view state for the navbar in your model
+
+type alias Model =
+    { navbar : Navbar.State
+    , tabs   : Tab.State
+    , accordion : Accordion.State
+    , canvas : Canvas.Model
+    , dataset : D.Dataset
+
+    , selectedFile : Maybe String
+    }
+
+
+type Msg
+    = Navbar Navbar.State
+    | Tabs Tab.State
+    | Accordion Accordion.State
+    | Canvas Canvas.Msg
+    | Select String
+
+
+
+
+init : ( Model, Cmd Msg )
+init = let
+    (navState, navCmd) = Navbar.initialState Navbar
+    (canvasState, canvasCmd) = Canvas.init
+    model = {
+      navbar = navState, tabs = Tab.initialState, accordion = Accordion.initialState, canvas = canvasState,
+      dataset = D.dataset, selectedFile = Nothing
+    }
+    cmds  = Cmd.batch [navCmd, Cmd.map Canvas canvasCmd]
+  in  (model, cmds)
+
+
+
+
+none : model -> (model, Cmd Msg)
+none model = (model, Cmd.none)
+
+update : Msg -> Model -> (Model, Cmd Msg)
+update msg model = case msg of
+        Navbar state -> none { model | navbar = state }
+        Canvas msg   -> let (canvas, cmds) = Canvas.update msg model.canvas in ({ model | canvas = canvas}, Cmd.map Canvas cmds)
+        Tabs state -> none { model | tabs = state }
+        Accordion state -> none { model | accordion = state }
+        Select file -> let url = model.dataset.path ++ "/" ++ file in
+          none { model | selectedFile = Just file, canvas = Canvas.setImage url model.canvas}
+
+
+subscriptions : Model -> Sub Msg
+subscriptions model = Sub.batch
+    [ Navbar.subscriptions model.navbar Navbar
+    , Tab.subscriptions model.tabs Tabs
+    , Canvas.subscriptions Canvas
+    , Accordion.subscriptions model.accordion Accordion
+    ]
+
+
+
+
+
+cols : List (Html msg) -> Html msg
+cols xs = Grid.containerFluid [] [
+    Grid.row [] (List.map (List.singleton >> Grid.col []) xs)
+  ]
+
+
+-- height scale = style [("height", scale)]
+-- flex n =  style [("flex", toString n)]
+
+view : Model -> Html Msg
+view model =
+  div [class "vert", draggable "false"]         -- Responsive fixed width container
+      [ div [class "expand horiz"]
+        [ sidebar model
+        , Html.map Canvas (Canvas.view model.canvas)
+
+        ]
+      ]
+
+
+tab : String -> String -> List (Html msg) -> Tab.Item msg
+tab identifier title content =  Tab.item
+    { id = identifier
+    , link = Tab.link [] [ text title ]
+    , pane = Tab.pane [] content
+    }
+
+
+-- select options = select
+-- selectFrom : List String -> Html Msg
+-- selectFrom opts = select [multiple True, class "form-control"]
+--   (List.map (text >> List.singleton >> option []) opts)
+
+
+item : String -> Select.Item msg
+item v = Select.item [value v] [text v]
+
+
+
+-- targetSelectedIndex : Json.Decoder Int
+-- targetSelectedIndex =
+--     Json.at [ "target", "selectedIndex" ] Json.int
+--
+--
+-- onSelect : (Int -> msg) -> Html.Attribute msg
+-- onSelect msg = on "change" (Json.map msg targetSelectedIndex)
+--
+--
+-- selectImage : List D.Image -> Html Msg
+-- selectImage images = Select.select [Select.attrs [size 5] ]
+--   <| List.map imageEntry images
+
+
+-- imageEntry : D.Image -> Select.Item Msg
+-- imageEntry image = Select.item [value image.file] <|
+--     [text (icon ++ image.file)]
+
+header : Table.THead msg
+header = Table.simpleThead
+    [ Table.th [] []
+    , Table.th [] []
+    ]
+
+
+toRow : Maybe String -> D.Image -> (String, Table.Row Msg)
+toRow active image = let
+    options = (Table.rowAttr <| onClick (Select image.file)) ::
+      (if active == Just image.file then [Table.rowActive] else [])
+    icon = if image.annotated then [FA.edit] else [FA.file_image_o]
+    table = [ Table.td [] icon, Table.td [] [ text image.file ]]
+
+  in (image.file, Table.tr options table)
+
+
+selectImage : Model -> Html Msg
+selectImage model = div [class "scroll"] [Table.table
+    { options = [ Table.small, Table.hover, Table.attr <| class "image_select" ] -- list of table options
+    , thead = header
+    , tbody = Table.keyedTBody [] (List.map (toRow model.selectedFile) model.dataset.images)
+    }]
+
+
+
+sidebar : Model -> Html Msg
+sidebar model =
+    div [class "sidebar"] [
+      Tab.config Tabs
+        -- |> Tab.left
+        |> Tab.items [
+            tab "images" "Images" [
+              selectImage model
+            ],
+            tab "instances" "Instances" [
+              text "Cheese",
+              accordion model
+            ]
+          ]
+        |> Tab.view model.tabs
+    ]
+
+
+
+card : String -> String -> List (Card.BlockItem msg) -> Accordion.Card msg
+card id title blocks = Accordion.card
+  { id = id
+  , options = []
+  , header = Accordion.header [] <| Accordion.toggle [] [ text title ]
+  , blocks = [Accordion.block [] blocks]
+  }
+
+
+accordion : Model -> Html Msg
+accordion model =
+    Accordion.config Accordion
+        |> Accordion.withAnimation
+        |> Accordion.cards
+        [  card "card1" "Card 1"
+            [ Card.text [] [ text "Lorem ipsum etc" ]
+            ,  Card.custom <| Select.select [Select.attrs [size 5]] [item "foo.jpg", item "bar.jpg", item "baz.png", item "another", item "asdf"]
+            ]
+        , card "card2" "Card 2"
+            [ Card.text [] [ text "Row row your boat.." ] ]
+        ]
+        |> Accordion.view model.accordion
+
+
+
+
+-- If you use animations as above or you use dropdowns in your navbar you need to configure subscriptions too

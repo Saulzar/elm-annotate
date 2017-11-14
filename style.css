@@ -1,0 +1,66 @@
+html, body {
+    height: 100%;
+    user-drag:none;
+    user-select: none;
+
+}
+
+
+.scroll {
+  overflow:auto;
+}
+
+.image_select {
+   cursor: default; /* or the one which you would like to have */
+   user-select: none;
+   user-drag:none;
+
+}
+
+
+.canvas {
+  background-color: darkGray;
+  height : 100%;
+  width : 100%;
+
+  overflow:hidden;
+  display:block;
+  position:relative;
+
+  user-select: none;
+  user-drag:none;
+}
+
+
+
+.canvas * {
+  position: absolute;
+
+}
+
+.vert {
+  display:flex;
+  flex-direction:column;
+  flex: 1 1 auto;
+  height:100%
+}
+
+.horiz {
+  display:flex;
+  flex-direction:row;
+
+  flex: 1 1 auto;
+  height:100%
+}
+
+
+.expand {
+  height:100%;
+  width:100%;
+  display:flex
+}
+
+
+.sidebar {
+  width:400px
+}
