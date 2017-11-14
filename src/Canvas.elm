@@ -11,6 +11,8 @@ import Html.Events exposing (..)
 -- import Svg.Attributes as Svg
 import Input
 import Window
+import Interaction exposing (Interaction)
+import Scene exposing (Scene)
 
 import Image as Image exposing (ViewGeometry)
 
@@ -20,18 +22,20 @@ import Input.Size as Size
 
 import Vector as V exposing (Size, Position, Vector, Box)
 
-type Msg = Input Input.Event | NeedsResize | ViewSize Box | ImageLoaded Size | Ignore
+type Msg = Start Interaction | Input Input.Event | NeedsResize | ViewSize Box | ImageLoaded Size | Ignore
 
 
 type alias Model = {
   view : ViewGeometry,
   image : Image.Model,
-  input : Input.State
+  input : Input.State,
+  interaction : Maybe Interaction,
+  scene : Scene
 }
 
 
 init : (Model, Cmd Msg)
-init = let state = { view = Image.initView, image = Image.init, input = Input.init }
+init = let state = { view = Image.initView, image = Image.init, input = Input.init, interaction = Nothing, scene = Scene.empty  }
   in (state, Cmd.batch [Size.askGeometry canvasId])
 
 subscriptions : (Msg -> msg) -> Sub msg
@@ -45,13 +49,21 @@ subscriptions f =
 none : model -> (model, Cmd Msg)
 none model = (model, Cmd.none)
 
+interact : Input.Event -> Model -> Model
+interact e model = model
+
+
+
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model = case msg of
   ImageLoaded size   -> none {model | image = Image.setSize size model.image}
   ViewSize box  -> none {model | view = Image.setView box model.view}
 
   NeedsResize -> (model, Size.askGeometry canvasId)
-  Input e     -> none {model | input = Input.update e model.input }
+  Input e     -> (interact e  >> none) {model | input = Input.update e model.input }
+  Start i     -> case model.interaction of
+    Nothing -> none { model | interaction = Just i }
+    _       -> none model
   Ignore      -> none model
 
 

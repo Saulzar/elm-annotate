@@ -9,7 +9,7 @@ import Input exposing (Event(..))
 import Vector as V exposing (Size, Position, Vector, Box)
 
 
-type Command = End
+type Command = Start Interaction | End
 
 type alias Scene =
   {
