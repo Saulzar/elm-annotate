@@ -2,8 +2,8 @@ html, body {
     height: 100%;
     user-drag:none;
     user-select: none;
-
 }
+
 
 
 .scroll {
@@ -18,7 +18,7 @@ html, body {
 }
 
 
-.canvas {
+.drawing {
   background-color: darkGray;
   height : 100%;
   width : 100%;
@@ -33,9 +33,20 @@ html, body {
 
 
 
-.canvas * {
-  position: absolute;
+.pointer_lock * {
+  cursor:inherit !important;
+  pointer-events:inherit !important;
+}
 
+
+.drawing * {
+  position: absolute;
+  pointer-events: auto !important;
+}
+
+.drawing div {
+  height:100%;
+  width:100%;
 }
 
 .vert {

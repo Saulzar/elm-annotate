@@ -1,4 +1,4 @@
-port module Input.Window exposing (onMouseDown, onMouseUp, onMouseMove, onMouseWheel, onFocus)
+port module Input.Window exposing (onMouseDown, onMouseUp, onMouseMove, onMouseWheel, onFocus, setCapture, releaseCapture)
 
 -- import Process
 -- import Task exposing (Task)
@@ -39,3 +39,7 @@ port windowMouseDown  : (Value -> msg) -> Sub msg
 port windowMouseUp  : (Value -> msg) -> Sub msg
 port windowFocus  : (Value -> msg) -> Sub msg
 port windowMouseMove : (Value -> msg) -> Sub msg
+
+
+port setCapture  : String -> Cmd msg
+port releaseCapture  : () -> Cmd msg

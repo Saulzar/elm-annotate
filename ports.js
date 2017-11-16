@@ -31,8 +31,18 @@ function subscribe(app) {
 
 
 		app.ports.askGeometry.subscribe(function(id) {
-        var elem = document.getElementById(id)
-        app.ports.clientRect.send([id, elem.getBoundingClientRect()]);
+        var elem = document.getElementById(id);
+				if (elem)
+        	app.ports.clientRect.send([id, elem.getBoundingClientRect()]);
     });
+
+
+		app.ports.loadImage.subscribe(function(imageFile) {
+
+				const img = document.createElement( "img" )
+				img.onload = () => app.ports.imageLoaded.send( {src : img.src, size : {x : img.width, y : img.height}} )
+				img.src = imageFile
+    });
+
 
 }

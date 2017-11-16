@@ -100,10 +100,8 @@ onMove f = on "mousemove" (Json.map f decodeClient)
 onDown : (Button -> msg) -> Attribute msg
 onDown f = on "mousedown"  (Json.map f decodeButton)
 
-
 onUp : (Button -> msg) -> Attribute msg
 onUp f = on "mouseup"    (Json.map f decodeButton)
 
-
-onScroll : (ScrollDelta -> msg)  -> Attribute msg
-onScroll f = on "scroll"    (Json.map f decodeScroll)
+onWheel : (ScrollDelta -> msg)  -> Attribute msg
+onWheel f = on "wheel"    (Json.map f decodeScroll)

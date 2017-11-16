@@ -1,5 +1,7 @@
 module Vector exposing (..)
 
+import List
+
 type alias Vector = {x:Float, y:Float}
 
 type alias Size = Vector
@@ -32,3 +34,12 @@ scale s v = Vector (v.x * s) (v.y * s)
 
 dot : Vector -> Vector -> Float
 dot v1 v2 = (v1.x * v2.x) + (v1.y * v2.y)
+
+
+sum : List Vector -> Vector
+sum vs = case vs of
+  []        -> Vector 0 0
+  (x :: xs) -> List.foldr add x xs
+
+clamp : (Float, Float) -> Float -> Float
+clamp (lower, upper) x = max (min x upper) lower

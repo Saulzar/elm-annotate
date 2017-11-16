@@ -13,7 +13,7 @@ import Input.Window as Window
 import Input.Mouse as Mouse
 import Set exposing (Set)
 
-import Debug
+-- import Debug
 
 type Event
   = MouseDown Mouse.Button
@@ -29,6 +29,19 @@ type Event
   | Focus Bool
 
   | Cancel
+
+
+transform : (Position -> Position) -> Event -> Event
+transform f event = case event of
+  MouseMove position -> MouseMove (f position)
+  _                  -> event
+
+
+mapBindings : (State, Event) -> Event
+mapBindings (state, event) = case event of
+  KeyDown 27 -> Cancel
+  _          -> event
+
 
 
 subscriptions : (Event -> msg) -> Sub msg
@@ -60,5 +73,5 @@ update input state = case input of
    MouseMove p -> { state | position = p }
    KeyDown k   -> { state | keys = Set.insert k state.keys }
    KeyUp k     -> { state | keys = Set.remove k state.keys }
-   Focus _     -> Debug.log "foo" { state | keys = Set.empty }
+   Focus _     -> { state | keys = Set.empty }
    _           -> state

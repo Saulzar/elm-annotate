@@ -1,14 +1,15 @@
-port module Main exposing (main)
+module Main exposing (main)
 
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 
 
+
 import Bootstrap.Card as Card
 import Bootstrap.Grid as Grid
 
-import Bootstrap.Form as Form
+-- import Bootstrap.Form as Form
 import Bootstrap.Form.Select as Select
 
 import Bootstrap.Accordion as Accordion
@@ -17,13 +18,17 @@ import Bootstrap.Table as Table
 import Bootstrap.Tab as Tab
 import Bootstrap.Navbar as Navbar
 
-import Canvas
+import Drawing
+import Image exposing (Image)
 import Dataset as D
 
 import FontAwesome.Web as FA
 
-import Input.Window as Window
-import Vector exposing (Position)
+import Scene.Types exposing (Action)
+-- import Input.Window as Window
+-- import Vector exposing (Position)
+
+import Util exposing (..)
 
 main : Program Never Model Msg
 main =
@@ -41,7 +46,7 @@ type alias Model =
     { navbar : Navbar.State
     , tabs   : Tab.State
     , accordion : Accordion.State
-    , canvas : Canvas.Model
+    , drawing : Drawing.Model
     , dataset : D.Dataset
 
     , selectedFile : Maybe String
@@ -52,8 +57,10 @@ type Msg
     = Navbar Navbar.State
     | Tabs Tab.State
     | Accordion Accordion.State
-    | Canvas Canvas.Msg
+    | Drawing Drawing.Msg
     | Select String
+    | ImageLoaded Image
+
 
 
 
@@ -61,36 +68,38 @@ type Msg
 init : ( Model, Cmd Msg )
 init = let
     (navState, navCmd) = Navbar.initialState Navbar
-    (canvasState, canvasCmd) = Canvas.init
+    (drawingState, drawingCmd) = Drawing.init
     model = {
-      navbar = navState, tabs = Tab.initialState, accordion = Accordion.initialState, canvas = canvasState,
+      navbar = navState, tabs = Tab.initialState, accordion = Accordion.initialState, drawing = drawingState,
       dataset = D.dataset, selectedFile = Nothing
     }
-    cmds  = Cmd.batch [navCmd, Cmd.map Canvas canvasCmd]
+    cmds  = Cmd.batch [navCmd, Cmd.map Drawing drawingCmd]
   in  (model, cmds)
 
 
 
-
-none : model -> (model, Cmd Msg)
-none model = (model, Cmd.none)
-
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model = case msg of
-        Navbar state -> none { model | navbar = state }
-        Canvas msg   -> let (canvas, cmds) = Canvas.update msg model.canvas in ({ model | canvas = canvas}, Cmd.map Canvas cmds)
-        Tabs state -> none { model | tabs = state }
-        Accordion state -> none { model | accordion = state }
+        Navbar state -> noCmd { model | navbar = state }
+        Drawing msg   -> let (drawing, cmds) = Drawing.update msg model.drawing in ({ model | drawing = drawing}, Cmd.map Drawing cmds)
+        Tabs state -> noCmd { model | tabs = state }
+        Accordion state -> noCmd { model | accordion = state }
         Select file -> let url = model.dataset.path ++ "/" ++ file in
-          none { model | selectedFile = Just file, canvas = Canvas.setImage url model.canvas}
+           ({ model | selectedFile = Just file}, Image.loadImage url)
+
+        ImageLoaded i -> noCmd { model | drawing = Drawing.setImage i model.drawing }
+
+
+
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model = Sub.batch
     [ Navbar.subscriptions model.navbar Navbar
     , Tab.subscriptions model.tabs Tabs
-    , Canvas.subscriptions Canvas
+    , Drawing.subscriptions Drawing
     , Accordion.subscriptions model.accordion Accordion
+    , Image.imageLoaded ImageLoaded
     ]
 
 
@@ -106,12 +115,18 @@ cols xs = Grid.containerFluid [] [
 -- height scale = style [("height", scale)]
 -- flex n =  style [("flex", toString n)]
 
+pointer : Maybe Action -> List (String, String)
+pointer ma = case ma of
+  Nothing     -> []
+  Just action -> [("cursor", action.cursor), ("pointer-events", "none !important")]
+
+
 view : Model -> Html Msg
 view model =
-  div [class "vert", draggable "false"]         -- Responsive fixed width container
+  div [class "vert pointer_lock", draggable "false", style (pointer model.drawing.action)]
       [ div [class "expand horiz"]
         [ sidebar model
-        , Html.map Canvas (Canvas.view model.canvas)
+        , Html.map Drawing (Drawing.view model.drawing)
 
         ]
       ]

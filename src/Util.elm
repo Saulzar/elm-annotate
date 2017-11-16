@@ -11,3 +11,7 @@ assertResult r = case r of
 
 tryDecode : Decoder a -> Value -> a
 tryDecode decoder value = assertResult (decodeValue decoder value)
+
+
+noCmd : model -> (model, Cmd msg)
+noCmd model = (model, Cmd.none)
