@@ -1,27 +1,42 @@
 module Scene.Types exposing (..)
 
+
+import Image exposing (Image)
 import Input
-import Vector as V exposing (Size, Position, Vector, Box)
 
 import TypedSvg.Core exposing (Svg)
-import Image exposing (Image)
 
+import Scene.View as View exposing (Geometry)
+import Scene.Settings as Settings exposing (Settings)
+import Scene.Document as Doc exposing (Document)
 
-type Command = Pan Vector | Zoom Float Position 
+import Vector as V exposing (..)
 
+type Command = Pan Position Position | Zoom Float Position | ZoomBrush Float | MakeEdit Doc.Edit
 
-
-
-type alias Scene =
-  {  background  : Maybe Image
-  }
 
 
 type alias Action =
-  { update : (Input.Event, Input.State) -> Update
-  , view   : () -> List (Svg Command)
+  { update : (Input.Event, Input.State) -> Scene -> Update
+  , view   : Scene -> Svg ()
   , cursor : String
   }
 
-
 type Update = Continue Action (Maybe Command) | Ignored | End (Maybe Command)
+
+type Active = Inactive | Active Action   -- Maybe synonym to break recursive types
+
+
+
+
+
+type Msg = Start Action | Run Command | Cancel | Ignore
+
+type alias Scene =
+  {  background  : Maybe Image
+  ,  view        : View.Geometry
+  ,  settings    : Settings
+  ,  action      : Active
+  ,  doc         : Document
+
+  }

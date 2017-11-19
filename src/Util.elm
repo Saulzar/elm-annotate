@@ -15,3 +15,9 @@ tryDecode decoder value = assertResult (decodeValue decoder value)
 
 noCmd : model -> (model, Cmd msg)
 noCmd model = (model, Cmd.none)
+
+
+applyMaybe : (a -> b -> b) -> Maybe a -> b -> b
+applyMaybe f ma = case ma of
+  Nothing -> identity
+  Just a  -> f a

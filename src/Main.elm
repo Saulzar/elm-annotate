@@ -24,7 +24,7 @@ import Dataset as D
 
 import FontAwesome.Web as FA
 
-import Scene.Types exposing (Action)
+import Scene.Types exposing (Action, Active(..))
 -- import Input.Window as Window
 -- import Vector exposing (Position)
 
@@ -115,21 +115,24 @@ cols xs = Grid.containerFluid [] [
 -- height scale = style [("height", scale)]
 -- flex n =  style [("flex", toString n)]
 
-pointer : Maybe Action -> List (String, String)
-pointer ma = case ma of
-  Nothing     -> []
-  Just action -> [("cursor", action.cursor), ("pointer-events", "none !important")]
+cursorAttribs : Active -> (String, String, String)
+cursorAttribs ma = case ma of
+  Inactive      -> ("", "auto", "auto")
+  Active action -> ("cursor_lock", action.cursor, "none")
+
+
 
 
 view : Model -> Html Msg
 view model =
-  div [class "vert pointer_lock", draggable "false", style (pointer model.drawing.action)]
-      [ div [class "expand horiz"]
-        [ sidebar model
-        , Html.map Drawing (Drawing.view model.drawing)
+  let (cursor_class, cursor, pointer_events) = cursorAttribs model.drawing.scene.action in
 
+    div [class "vert", draggable "false", style [("cursor", cursor)]]
+        [ div [class ("expand horiz " ++ cursor_class), style [("pointer-events", pointer_events)]]
+          [ sidebar model
+          , Html.map Drawing (Drawing.view model.drawing)
+          ]
         ]
-      ]
 
 
 tab : String -> String -> List (Html msg) -> Tab.Item msg

@@ -15,11 +15,13 @@ function subscribe(app) {
 	    app.ports.windowMouseMove.send(e)
 	  }
 
-
-		window.onmousewheel = function(e) {
+		var onWheel = function(e) {
 	    app.ports.windowMouseWheel.send(e)
+			e.preventDefault()
+			e.stopPropagation()
 	  }
 
+    window.onmousewheel = onWheel;
 
 		window.onfocus = function() {
 	    app.ports.windowFocus.send(true)

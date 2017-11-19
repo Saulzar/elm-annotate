@@ -10,15 +10,16 @@ import Html.Events exposing (..)
 
 import Window
 import Scene
-import Scene.Types exposing (Scene, Action, Command(..), Update(..))
+import Scene.Types as Scene exposing (Scene, Action, Command(..), Update(..))
 import Scene.Action as Action
 
-import View
+
 import Image as Image exposing (Image)
 import Input.Element as Element
 import Input.Mouse as Mouse
 --import Input.Window as Window
 
+import Keyboard.Key as Key exposing (Key)
 import Input
 
 import Util exposing (..)
@@ -28,16 +29,16 @@ import Vector as V exposing (Size, Position, Vector, Box)
 type Msg = Input Input.Event | Scene Scene.Msg | NeedsResize | ViewSize Box | Ignore
 
 
+
+
 type alias Model = {
-  view   : View.Geometry,
   input  : Input.State,
-  scene  : Scene,
-  action : Maybe Action
+  scene  : Scene
 }
 
 
 init : (Model, Cmd Msg)
-init = let state = { view = View.init, input = Input.init, scene = Scene.empty, action = Nothing  }
+init = let state = { input = Input.init, scene = Scene.empty  }
   in (state, Cmd.batch [Element.askGeometry drawingId])
 
 subscriptions : (Msg -> msg) -> Sub msg
@@ -49,47 +50,42 @@ subscriptions f =
   ]
 
 
+
 startAction :  Action -> Msg
 startAction =  Scene.Start >> Scene
 
-updateCommand : Maybe Command -> Model -> Model
-updateCommand ma model = case ma of
-  Nothing -> model
-  Just act -> case act of
-    Pan pos        -> {model | view = View.pan pos model.view}
-    Zoom zoom pos  -> {model | view = View.zoom zoom pos model.view}
+runCommand :  Command -> Msg
+runCommand =  Scene.Run >> Scene
 
 
+modifyScene : (Scene -> Scene) -> Model -> Model
+modifyScene f model = {model | scene = f model.scene}
 
 
-interact : (Input.Event, Input.State) -> Model -> (Model, Cmd Msg)
-interact input model = case model.action of
-  Nothing     -> noCmd model
-  Just action -> case action.update input of
+bind : Key -> List Key -> a -> (Input.Binding, a)
+bind k mod = (,) (Input.Binding k mod)
 
-    Continue update act -> noCmd <| updateCommand act {model | action = Just update}
-    End act   -> noCmd (updateCommand act {model | action = Nothing})
-    Ignored   -> noCmd model
-
-
+checkKeys : (Input.Event, Input.State) -> Scene -> Scene
+checkKeys (e, state) scene =
+  let match = Input.matchKeys (e, state)
+         [ bind Key.Escape [] Scene.Cancel
+         , let key = Key.Shift in
+            bind key [] <| Scene.Start (Action.drawPoints key <| Scene.toLocal scene state.position)
+         ]
+  in applyMaybe Scene.update match scene
 
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model = case msg of
-  ViewSize box  -> noCmd {model | view = View.setBounds box model.view}
+  ViewSize box  -> noCmd (modifyScene (Scene.setBounds box) model)
 
   NeedsResize -> (model, Element.askGeometry drawingId)
-  Input e     -> let
-    local = Input.transform (View.toLocal model.view) e
-    input = Input.update local model.input
-    bound = Input.mapBindings (input, local)
-      in  interact (bound, input) { model | input = input }
+  Input event -> let
+    input = Input.update event model.input
+      in  noCmd <|
+        modifyScene (Scene.interact (event, input) >> checkKeys (event, input)) { model | input = input }
 
-
-  Scene (Scene.Start action) -> case model.action of
-    Nothing -> noCmd { model | action = Just action }
-    _       -> noCmd model
-
+  Scene cmd   -> noCmd (modifyScene (Scene.update cmd) model)
   Ignore      -> noCmd model
 
 
@@ -103,15 +99,14 @@ geometry = Element.geometry drawingId (\m -> case m of
     Just geom -> ViewSize geom)
 
 setImage : Image -> Model -> Model
-setImage image model = {model
-  | view = View.setSize image.size model.view
-  , scene = Scene.setBackground image model.scene
-  }
+setImage image model = {model | scene = Scene.setBackground image model.scene}
 
 
 onContextMenu : msg -> Attribute msg
 onContextMenu msg = onWithOptions "contextmenu" { preventDefault = True, stopPropagation = True } (Json.succeed msg)
 
+localPosition : Model -> Position
+localPosition model = Scene.toLocal model.scene model.input.position
 
 view : Model -> Html Msg
 view model = div
@@ -121,13 +116,14 @@ view model = div
   ,  tabindex 0
 
   , Mouse.onDown (\b -> case b of
-        Mouse.Left -> startAction (Action.pan model.input.position)
+        Mouse.Left -> startAction (Action.pan (localPosition model))
         _          -> Ignore)
 
-  , Mouse.onWheel (\deltas -> startAction (Action.zoom deltas.dy model.input.position))
+  , Mouse.onWheel (\deltas ->
+      runCommand (Zoom  deltas.dy (localPosition model)))
 
   ]
 
-  [ View.view model.view (Scene.view Scene  model.scene)
+  [ Scene.view Scene model.scene
   ,  div [] [text (toString model)]
   ]

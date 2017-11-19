@@ -6,13 +6,13 @@ module Input exposing (..)
 
 import Vector exposing (..)
 
-import Char
-import Keyboard
+import Keyboard.Key as Key exposing (Key)
+import Keyboard.KeySet as KeySet exposing (KeySet)
 
 import Input.Window as Window
 import Input.Mouse as Mouse
-import Set exposing (Set)
 
+import List
 -- import Debug
 
 type Event
@@ -22,13 +22,28 @@ type Event
 
   | MouseMove Position
 
-  | KeyDown Char.KeyCode
-  | KeyUp Char.KeyCode
-  | KeyPress Char.KeyCode
+  | KeyDown Key
+  | KeyUp Key
+  | KeyPress Key
 
   | Focus Bool
 
-  | Cancel
+
+type alias Binding = {key : Key, modifiers : List Key}
+
+
+
+matchKey : (Key, State) -> Binding -> Bool
+matchKey (pressed, state) bind = bind.key == pressed &&
+    List.all (flip KeySet.member state.keys) bind.modifiers
+
+
+matchKeys : (Event, State) -> List (Binding, a) -> Maybe a
+matchKeys (e, state) bindings = case e of
+  KeyDown k -> List.head
+    <| List.map Tuple.second
+    <| List.filter (Tuple.first >> matchKey (k, state)) bindings
+  _         -> Nothing
 
 
 transform : (Position -> Position) -> Event -> Event
@@ -37,17 +52,12 @@ transform f event = case event of
   _                  -> event
 
 
-mapBindings : (State, Event) -> Event
-mapBindings (state, event) = case event of
-  KeyDown 27 -> Cancel
-  _          -> event
-
 
 
 subscriptions : (Event -> msg) -> Sub msg
 subscriptions f = Sub.batch
-  [ Keyboard.ups (KeyUp >> f)
-  , Keyboard.downs (KeyDown >> f)
+  [ Key.onKeyUp (KeyUp >> f)
+  , Key.onKeyDown (KeyDown >> f)
   , Window.onMouseUp (MouseUp >> f)
   , Window.onMouseDown (MouseDown >> f)
   , Window.onMouseWheel (MouseWheel >> f)
@@ -58,20 +68,20 @@ subscriptions f = Sub.batch
 
 type alias State =
   { position : Vector
-  , keys : Set Char.KeyCode
+  , keys : KeySet
   }
 
 init : State
 init =
   { position  = Vector 0 0
-  , keys = Set.empty
+  , keys = KeySet.empty
   }
 
 
 update : Event -> State -> State
 update input state = case input of
    MouseMove p -> { state | position = p }
-   KeyDown k   -> { state | keys = Set.insert k state.keys }
-   KeyUp k     -> { state | keys = Set.remove k state.keys }
-   Focus _     -> { state | keys = Set.empty }
+   KeyDown k   -> { state | keys = KeySet.insert k state.keys }
+   KeyUp k     -> { state | keys = KeySet.remove k state.keys }
+   Focus _     -> { state | keys = KeySet.empty }
    _           -> state

@@ -8,20 +8,26 @@ import TypedSvg.Attributes exposing (..)
 
 
 import Input exposing (Event(..))
+
+import Scene.View as View
 import Vector as V exposing (Size, Position, Vector, Box)
 
-import Input.Mouse as Mouse
 import Scene.Types exposing (..)
+
+import Input.Mouse as Mouse
+import Keyboard.Key exposing (Key)
+
+
+
 
 action : Action
 action =
-  { update =  always end
+  { update = \_ _ -> end
   , cursor = "default"
-  , view = always []
+  , view = always (g [] [])
   }
 
-circle : Position -> Float -> Svg msg
-circle pos radius = Svg.circle [cx (px pos.x), cy (px pos.y), r (px radius)] []
+
 
 
 -- type alias LineTool =
@@ -45,33 +51,47 @@ circle pos radius = Svg.circle [cx (px pos.x), cy (px pos.y), r (px radius)] []
 continue : Action -> Update
 continue action = Continue action Nothing
 
-continueWith : Action -> Command -> Update
-continueWith action act = Continue action (Just act)
+command : Action -> Command -> Update
+command action act = Continue action (Just act)
 
 end : Update
 end = End Nothing
 
 
-command : Command -> Action
-command cmd = { action | update = always (End (Just cmd)) }
-
-zoom :  Float -> Position -> Action
-zoom zoom pos = command (Zoom zoom pos)
-
 
 pan :  Position -> Action
 pan pos = { action
-  | update = \(e, _) -> case e of
+  | update = \(e, _) scene -> case e of
       MouseMove mouse ->
-        continueWith (pan mouse) (Pan (V.sub mouse pos))
+        command (pan pos) (Pan pos mouse)
 
       MouseWheel deltas ->
-        continueWith (pan pos) (Zoom deltas.dy pos)
+        command (pan pos) (Zoom deltas.dy pos)
 
       MouseUp b   -> if b == Mouse.Left then end else Ignored
 
-      Cancel      -> end
       _           -> Ignored
 
   , cursor = "move"
   }
+
+
+circle : Position -> Float -> Svg msg
+circle pos radius = Svg.circle [cx (px pos.x), cy (px pos.y), r (px radius)] []
+
+drawPoints : Key -> Position -> Action
+drawPoints key = let update = \pos -> { action
+    | update = \(e, _) scene -> case e of
+        MouseMove mouse ->
+          continue (update (View.toLocal scene.view mouse))
+
+        MouseWheel deltas ->
+          command (update pos) (ZoomBrush deltas.dy)
+
+        KeyUp k   -> if k == key then end else Ignored
+
+        _           -> Ignored
+    , view = \scene -> circle pos scene.settings.brushRadius
+
+    , cursor = "none"
+    } in update
