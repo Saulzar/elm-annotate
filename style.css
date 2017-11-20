@@ -10,7 +10,6 @@ html, body {
   user-select:none;
 
   cursor:default;
-  margin: 0;
 }
 
 
@@ -26,25 +25,20 @@ html, body {
 
   overflow:hidden;
   display:block;
-  position:relative;
+  position:relative;s
 }
 
 
 .cursor_lock * {
   cursor:inherit !important;
-  pointer-events:inherit !important;
+  /*pointer-events:inherit !important;*/
 }
 
-
-.drawing * {
-  position: absolute;
-  /*pointer-events: none !important;*/
-}
 
 .drawing div {
-  height:100%;
-  width:100%;
+  position: absolute;
 }
+
 
 .vert {
   display:flex;
@@ -71,4 +65,19 @@ html, body {
 
 .sidebar {
   width:400px
+}
+
+
+
+.brush {
+  stroke: black;
+  fill: blue;
+  vector-effect: non-scaling-stroke;
+  fill-opacity: 0.4;
+}
+
+
+.zoom {
+  right : 10px;
+  bottom: 10px;
 }

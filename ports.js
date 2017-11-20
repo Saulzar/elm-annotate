@@ -10,6 +10,9 @@ function subscribe(app) {
 	  app.ports.windowMouseUp.send(e)
 	}
 
+	window.onclick = function(e) {
+	  app.ports.windowClick.send(e)
+	}
 
 		window.onmousemove = function(e) {
 	    app.ports.windowMouseMove.send(e)

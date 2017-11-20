@@ -1,4 +1,4 @@
-port module Input.Window exposing (onMouseDown, onMouseUp, onMouseMove, onMouseWheel, onFocus, setCapture, releaseCapture)
+port module Input.Window exposing (onMouseDown, onMouseUp, onClick, onMouseMove, onMouseWheel, onFocus, setCapture, releaseCapture)
 
 -- import Process
 -- import Task exposing (Task)
@@ -19,6 +19,9 @@ onMouseDown f = windowMouseDown (tryDecode decodeButton >> f)
 onMouseUp : (Button -> msg) -> Sub msg
 onMouseUp f = windowMouseUp (tryDecode decodeButton >> f)
 
+onClick : (Button -> msg) -> Sub msg
+onClick f = windowClick (tryDecode decodeButton >> f)
+
 onFocus : (Bool -> msg) -> Sub msg
 onFocus f = windowFocus (tryDecode Json.bool >> f)
 
@@ -36,6 +39,8 @@ onMouseMove f = windowMouseMove (tryDecode decodeClient >> f)
 
 port windowMouseWheel  : (Value -> msg) -> Sub msg
 port windowMouseDown  : (Value -> msg) -> Sub msg
+port windowClick  : (Value -> msg) -> Sub msg
+
 port windowMouseUp  : (Value -> msg) -> Sub msg
 port windowFocus  : (Value -> msg) -> Sub msg
 port windowMouseMove : (Value -> msg) -> Sub msg

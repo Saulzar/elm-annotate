@@ -18,6 +18,7 @@ import List
 type Event
   = MouseDown Mouse.Button
   | MouseUp Mouse.Button
+  | Click Mouse.Button
   | MouseWheel Mouse.ScrollDelta
 
   | MouseMove Position
@@ -60,8 +61,9 @@ subscriptions f = Sub.batch
   , Key.onKeyDown (KeyDown >> f)
   , Window.onMouseUp (MouseUp >> f)
   , Window.onMouseDown (MouseDown >> f)
+  , Window.onClick (Click >> f)
   , Window.onMouseWheel (MouseWheel >> f)
-  , Window.onMouseMove (MouseMove >> f)
+  , Window.onMouseMove (MouseMove >> f) 
   , Window.onFocus (Focus >> f)
   ]
 

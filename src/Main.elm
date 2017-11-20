@@ -4,7 +4,8 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 
-
+import Bootstrap.ButtonGroup as Bg
+import Bootstrap.Button as Button
 
 import Bootstrap.Card as Card
 import Bootstrap.Grid as Grid
@@ -24,7 +25,8 @@ import Dataset as D
 
 import FontAwesome.Web as FA
 
-import Scene.Types exposing (Action, Active(..))
+import Scene.Types as Scene exposing (Action, Active(..), Command(..))
+import Scene
 -- import Input.Window as Window
 -- import Vector exposing (Position)
 
@@ -121,6 +123,18 @@ cursorAttribs ma = case ma of
   Active action -> ("cursor_lock", action.cursor, "none")
 
 
+sceneMsg : Scene.Msg -> Msg
+sceneMsg = Drawing.Scene >> Drawing
+
+drawings : Model -> List (Html Msg)
+drawings model =
+    let zoom amount = sceneMsg (Scene.Run (Scene.zoomCentre model.drawing.scene amount))
+
+    in [ Bg.buttonGroup [ Bg.vertical, Bg.small, Bg.attrs [class "zoom"] ]
+          [ Bg.button [ Button.secondary, Button.onClick (zoom -25)  ] [  FA.plus ]
+          , Bg.button [ Button.secondary, Button.onClick (zoom 25) ] [  FA.minus ]
+          ]
+        ]
 
 
 view : Model -> Html Msg
@@ -130,7 +144,7 @@ view model =
     div [class "vert", draggable "false", style [("cursor", cursor)]]
         [ div [class ("expand horiz " ++ cursor_class), style [("pointer-events", pointer_events)]]
           [ sidebar model
-          , Html.map Drawing (Drawing.view model.drawing)
+          , (Drawing.view Drawing (drawings model) model.drawing)
           ]
         ]
 

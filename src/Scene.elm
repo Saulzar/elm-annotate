@@ -4,8 +4,8 @@ import Html exposing (..)
 
 import TypedSvg.Core as Svg exposing (Svg)
 import TypedSvg.Types as Svg exposing (..)
-import TypedSvg exposing (..)
-import TypedSvg.Attributes exposing (..)
+import TypedSvg  as Svg exposing (..)
+import TypedSvg.Attributes as Svg exposing (..)
 --
 --
 -- import Input exposing (Event(..))
@@ -16,12 +16,14 @@ import Scene.View as View exposing (Geometry)
 import Scene.Settings as Settings exposing (Settings)
 
 import Scene.Types exposing (..)
-import Scene.Document as Doc exposing (Document)
+import Scene.Document as Doc exposing (Document, Object(..))
 
 
 import Input
 import Util exposing (..)
 import Maybe
+import Dict
+import Debug
 --import Util exposing (..)
 
 
@@ -36,7 +38,6 @@ empty =
   , doc = Doc.init
 
   }
-
 
 
 modifyView : (Geometry -> Geometry) -> Scene -> Scene
@@ -55,10 +56,9 @@ setBackground image scene = {scene | background = Just image, view = View.setSiz
 runCommand : Command -> Scene -> Scene
 runCommand cmd = case cmd of
     Pan pos mouse  -> modifyView (View.pan pos mouse)
-    Zoom zoom pos  -> modifyView (View.zoom zoom pos)
+    Zoom zoom pos  -> modifyView (View.zoomTo zoom pos)
     ZoomBrush zoom -> modifySettings (Settings.zoomBrush zoom)
-    MakeEdit e -> modifyDoc (Doc.edit e)
-
+    MakeEdit e ->  modifyDoc (Doc.applyEdit e)
 
 
 
@@ -96,12 +96,28 @@ view : (Msg -> msg) -> Scene -> Html msg
 view f scene = Html.map f <| View.view scene.view
   [ maybeSvg scene.background
       (\i -> image [xlinkHref i.src, x (px 0), y (px 0), width (px i.size.x), height (px i.size.y) ] [])
+
+  , g [] (List.map viewObject (Dict.toList  scene.doc.instances))
   , maybeSvg (maybeAction scene)
       (\action -> Svg.map (always Ignore) <| action.view scene)
   ]
 
 
+circle : Position -> Float -> Svg msg
+circle pos radius = Svg.circle [class ["brush"], cx (px pos.x), cy (px pos.y), r (px radius)] []
 
+viewObject : (Doc.Id, Object) -> Svg Msg
+viewObject (id, obj) = case obj of
+  Point p ->  circle p.position p.radius
+
+
+
+zoomCentre : Scene -> Float -> Command
+zoomCentre scene amount = Zoom amount (V.centre scene.view.bounds)
+
+
+cancelAction : Scene -> Scene
+cancelAction scene = { scene | action = Inactive }
 
 
 update : Msg -> Scene -> Scene
@@ -111,7 +127,7 @@ update msg scene = case msg of
     _        -> scene
 
   Run cmd -> runCommand cmd scene
-  Cancel  -> { scene | action = Inactive }
+  Cancel  -> cancelAction scene
   Ignore -> scene
 
 

@@ -1,4 +1,4 @@
-module Drawing exposing (init, update, view, subscriptions, Model, Msg, setImage)
+module Drawing exposing (init, update, view, subscriptions, Model, Msg(..), setImage)
 
 
 import Json.Decode as Json
@@ -12,6 +12,8 @@ import Window
 import Scene
 import Scene.Types as Scene exposing (Scene, Action, Command(..), Update(..))
 import Scene.Action as Action
+
+
 
 
 import Image as Image exposing (Image)
@@ -75,15 +77,20 @@ checkKeys (e, state) scene =
   in applyMaybe Scene.update match scene
 
 
+updateInput : (Input.Event, Input.State) -> Model -> Model
+updateInput (event, input)  = modifyScene <| case event of
+      Input.Focus _ ->  Scene.cancelAction
+      _ ->  Scene.interact (event, input) >> checkKeys (event, input)
+
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model = case msg of
   ViewSize box  -> noCmd (modifyScene (Scene.setBounds box) model)
 
   NeedsResize -> (model, Element.askGeometry drawingId)
-  Input event -> let
-    input = Input.update event model.input
-      in  noCmd <|
-        modifyScene (Scene.interact (event, input) >> checkKeys (event, input)) { model | input = input }
+  Input event ->
+    let input = Input.update event model.input
+    in noCmd <| updateInput (event, input) { model | input = input }
+
 
   Scene cmd   -> noCmd (modifyScene (Scene.update cmd) model)
   Ignore      -> noCmd model
@@ -91,7 +98,7 @@ update msg model = case msg of
 
 
 drawingId : String
-drawingId = "image_drawing"
+drawingId = "drawingArea"
 
 geometry : Sub Msg
 geometry = Element.geometry drawingId (\m -> case m of
@@ -108,22 +115,18 @@ onContextMenu msg = onWithOptions "contextmenu" { preventDefault = True, stopPro
 localPosition : Model -> Position
 localPosition model = Scene.toLocal model.scene model.input.position
 
-view : Model -> Html Msg
-view model = div
-  [ class "drawing", id drawingId
-  -- , style [("cursor", Maybe.withDefault "default" (Maybe.map .cursor model.action))]
-  --,  onContextMenu Ignore
-  ,  tabindex 0
-
-  , Mouse.onDown (\b -> case b of
+events : Model -> List (Attribute Msg)
+events model =
+  [ Mouse.onDown (\b -> case b of
         Mouse.Left -> startAction (Action.pan (localPosition model))
         _          -> Ignore)
 
   , Mouse.onWheel (\deltas ->
       runCommand (Zoom  deltas.dy (localPosition model)))
-
   ]
 
-  [ Scene.view Scene model.scene
-  ,  div [] [text (toString model)]
-  ]
+
+view : (Msg -> msg) -> List (Html msg) -> Model -> Html msg
+view f overlays model =
+  let scene = Html.map f <| div (events model) [Scene.view Scene model.scene]
+  in div [ class "drawing", id drawingId,  tabindex 0] (scene :: overlays)

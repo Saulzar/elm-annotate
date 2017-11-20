@@ -10,6 +10,9 @@ import TypedSvg.Attributes exposing (..)
 import Input exposing (Event(..))
 
 import Scene.View as View
+import Scene.Document as Doc exposing (Object(..), Edit(..))
+
+
 import Vector as V exposing (Size, Position, Vector, Box)
 
 import Scene.Types exposing (..)
@@ -58,6 +61,11 @@ end : Update
 end = End Nothing
 
 
+when : Bool -> Update -> Update
+when b update = if b then update else Ignored
+
+createObject : Scene -> Object -> Command
+createObject scene = MakeEdit << Insert scene.doc.nextId
 
 pan :  Position -> Action
 pan pos = { action
@@ -68,7 +76,7 @@ pan pos = { action
       MouseWheel deltas ->
         command (pan pos) (Zoom deltas.dy pos)
 
-      MouseUp b   -> if b == Mouse.Left then end else Ignored
+      MouseUp b   -> when (b == Mouse.Left) end
 
       _           -> Ignored
 
@@ -77,20 +85,25 @@ pan pos = { action
 
 
 circle : Position -> Float -> Svg msg
-circle pos radius = Svg.circle [cx (px pos.x), cy (px pos.y), r (px radius)] []
+circle pos radius = Svg.circle [class ["brush"], cx (px pos.x), cy (px pos.y), r (px radius)] []
 
 drawPoints : Key -> Position -> Action
 drawPoints key = let update = \pos -> { action
-    | update = \(e, _) scene -> case e of
-        MouseMove mouse ->
-          continue (update (View.toLocal scene.view mouse))
+    | update = \(e, _) scene ->
+      let self = update pos
+      in case e of
+          MouseMove mouse ->
+            continue (update (View.toLocal scene.view mouse))
 
-        MouseWheel deltas ->
-          command (update pos) (ZoomBrush deltas.dy)
+          MouseWheel deltas ->
+            command self (ZoomBrush deltas.dy)
 
-        KeyUp k   -> if k == key then end else Ignored
+          Click b -> when (b == Mouse.Left) <| 
+            command self (createObject scene (Point {position = pos, radius = scene.settings.brushRadius}))
 
-        _           -> Ignored
+          KeyUp k   -> when (k == key) end
+
+          _           -> Ignored
     , view = \scene -> circle pos scene.settings.brushRadius
 
     , cursor = "none"

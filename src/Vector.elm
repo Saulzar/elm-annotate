@@ -13,6 +13,9 @@ type alias Box =
   }
 
 
+centre : Box -> Position
+centre box = add box.position (scale 0.5 box.size)
+
 
 add : Vector -> Vector -> Vector
 add v1 v2 = Vector (v1.x + v2.x) (v1.y + v2.y)
