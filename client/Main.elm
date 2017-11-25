@@ -4,6 +4,8 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 
+import Navigation as Nav
+
 import Bootstrap.ButtonGroup as Bg
 import Bootstrap.Button as Button
 
@@ -17,15 +19,19 @@ import Bootstrap.Accordion as Accordion
 
 import Bootstrap.Table as Table
 import Bootstrap.Tab as Tab
-import Bootstrap.Navbar as Navbar
-
-import Drawing
-import Image exposing (Image)
-import Dataset as D
-
 import FontAwesome.Web as FA
 
+
+import Image exposing (Image)
+import Network
+import Drawing
+
+
+
+
 import Scene.Types as Scene exposing (Action, Active(..), Command(..))
+
+import Types exposing (Dataset, ImageInfo, Response(..), Request (..))
 import Scene
 -- import Input.Window as Window
 -- import Vector exposing (Position)
@@ -34,7 +40,7 @@ import Util exposing (..)
 
 main : Program Never Model Msg
 main =
-    Html.program
+    Nav.program UrlChange
         { view = view
         , update = update
         , subscriptions = subscriptions
@@ -45,66 +51,79 @@ main =
 -- You need to keep track of the view state for the navbar in your model
 
 type alias Model =
-    { navbar : Navbar.State
-    , tabs   : Tab.State
+    { tabs   : Tab.State
     , accordion : Accordion.State
     , drawing : Drawing.Model
-    , dataset : D.Dataset
+    , dataset : Maybe Dataset
 
     , selectedFile : Maybe String
+    , location : Nav.Location
+
+    , network : Network.State
     }
 
 
 type Msg
-    = Navbar Navbar.State
-    | Tabs Tab.State
+    = Tabs Tab.State
     | Accordion Accordion.State
     | Drawing Drawing.Msg
     | Select String
     | ImageLoaded Image
+    | UrlChange Nav.Location
+    | Network Network.Msg
 
 
 
 
 
-init : ( Model, Cmd Msg )
-init = let
-    (navState, navCmd) = Navbar.initialState Navbar
-    (drawingState, drawingCmd) = Drawing.init
-    model = {
-      navbar = navState, tabs = Tab.initialState, accordion = Accordion.initialState, drawing = drawingState,
-      dataset = D.dataset, selectedFile = Nothing
-    }
-    cmds  = Cmd.batch [navCmd, Cmd.map Drawing drawingCmd]
+init : Nav.Location -> ( Model, Cmd Msg )
+init loc = let
+    (drawing, drawCmd) = Drawing.init
+    (network, netCmd) = Network.init loc
+
+    model = { tabs = Tab.initialState
+            , accordion = Accordion.initialState
+            , drawing = drawing
+            , network = network
+            , dataset = Nothing
+            , selectedFile = Nothing
+            , location = loc
+            }
+    cmds  = Cmd.batch [Cmd.map Drawing drawCmd, Cmd.map Network netCmd]
   in  (model, cmds)
 
 
+imagePath : Dataset -> String -> String
+imagePath dataset file = dataset.path ++ "/" ++ file
+
+handleResponse : Response -> Model -> Model
+handleResponse r model = model
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model = case msg of
-        Navbar state -> noCmd { model | navbar = state }
-        Drawing msg   -> let (drawing, cmds) = Drawing.update msg model.drawing in ({ model | drawing = drawing}, Cmd.map Drawing cmds)
-        Tabs state -> noCmd { model | tabs = state }
-        Accordion state -> noCmd { model | accordion = state }
-        Select file -> let url = model.dataset.path ++ "/" ++ file in
-           ({ model | selectedFile = Just file}, Image.loadImage url)
+    Drawing msg   -> let (drawing, cmds) = Drawing.update msg model.drawing in ({ model | drawing = drawing}, Cmd.map Drawing cmds)
+    Tabs state -> noCmd { model | tabs = state }
+    Accordion state -> noCmd { model | accordion = state }
+    Select file -> case model.dataset of
+      Just dataset -> ({ model | selectedFile = Just file}, Image.loadImage (imagePath dataset file))
+      Nothing -> noCmd model
 
-        ImageLoaded i -> noCmd { model | drawing = Drawing.setImage i model.drawing }
-
-
+    ImageLoaded i -> noCmd { model | drawing = Drawing.setImage i model.drawing }
+    UrlChange _ -> noCmd model
+    Network m ->
+      let (state, resp, cmd) = Network.update m model.network
+      in (applyMaybe handleResponse resp {model | network = state}, Cmd.map Network cmd)
 
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model = Sub.batch
-    [ Navbar.subscriptions model.navbar Navbar
-    , Tab.subscriptions model.tabs Tabs
+    [ Tab.subscriptions model.tabs Tabs
     , Drawing.subscriptions Drawing
     , Accordion.subscriptions model.accordion Accordion
     , Image.imageLoaded ImageLoaded
+    , Network.subscriptions model.network Network
     ]
-
-
 
 
 
@@ -193,7 +212,7 @@ header = Table.simpleThead
     ]
 
 
-toRow : Maybe String -> D.Image -> (String, Table.Row Msg)
+toRow : Maybe String -> ImageInfo -> (String, Table.Row Msg)
 toRow active image = let
     options = (Table.rowAttr <| onClick (Select image.file)) ::
       (if active == Just image.file then [Table.rowActive] else [])
@@ -203,11 +222,11 @@ toRow active image = let
   in (image.file, Table.tr options table)
 
 
-selectImage : Model -> Html Msg
-selectImage model = div [class "scroll"] [Table.table
+selectImage : Model -> List ImageInfo ->  Html Msg
+selectImage model images = div [class "scroll"] [Table.table
     { options = [ Table.small, Table.hover, Table.attr <| class "image_select" ] -- list of table options
     , thead = header
-    , tbody = Table.keyedTBody [] (List.map (toRow model.selectedFile) model.dataset.images)
+    , tbody = Table.keyedTBody [] (List.map (toRow model.selectedFile) images)
     }]
 
 
@@ -219,7 +238,9 @@ sidebar model =
         -- |> Tab.left
         |> Tab.items [
             tab "images" "Images" [
-              selectImage model
+              selectImage model (case model.dataset of
+                Nothing -> []
+                Just dataset -> dataset.images)
             ],
             tab "instances" "Instances" [
               text "Cheese",

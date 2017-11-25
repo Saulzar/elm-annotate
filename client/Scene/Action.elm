@@ -10,10 +10,11 @@ import TypedSvg.Attributes exposing (..)
 import Input exposing (Event(..))
 
 import Scene.View as View
-import Scene.Document as Doc exposing (Object(..), Edit(..))
+-- import Scene.Document as Doc
+import Types exposing (..)
 
 
-import Vector as V exposing (Size, Position, Vector, Box)
+import Vector as V exposing (Size, Position, Vec2, Box)
 
 import Scene.Types exposing (..)
 
@@ -65,7 +66,7 @@ when : Bool -> Update -> Update
 when b update = if b then update else Ignored
 
 createObject : Scene -> Object -> Command
-createObject scene = MakeEdit << Insert scene.doc.nextId
+createObject scene = MakeEdit << Append
 
 pan :  Position -> Action
 pan pos = { action
@@ -98,7 +99,7 @@ drawPoints key = let update = \pos -> { action
           MouseWheel deltas ->
             command self (ZoomBrush deltas.dy)
 
-          Click b -> when (b == Mouse.Left) <| 
+          Click b -> when (b == Mouse.Left) <|
             command self (createObject scene (Point {position = pos, radius = scene.settings.brushRadius}))
 
           KeyUp k   -> when (k == key) end

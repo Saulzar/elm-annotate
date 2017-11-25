@@ -8,11 +8,14 @@ import TypedSvg.Core exposing (Svg)
 
 import Scene.View as View exposing (Geometry)
 import Scene.Settings as Settings exposing (Settings)
-import Scene.Document as Doc exposing (Document)
+
+
+import Types exposing (..)
+
 
 import Vector as V exposing (..)
 
-type Command = Pan Position Position | Zoom Float Position | ZoomBrush Float | MakeEdit Doc.Edit
+type Command = Pan Position Position | Zoom Float Position | ZoomBrush Float | MakeEdit Edit
 
 
 

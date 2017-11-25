@@ -26,7 +26,7 @@ import Input
 
 import Util exposing (..)
 
-import Vector as V exposing (Size, Position, Vector, Box)
+import Vector as V exposing (Size, Position, Vec2, Box)
 
 type Msg = Input Input.Event | Scene Scene.Msg | NeedsResize | ViewSize Box | Ignore
 

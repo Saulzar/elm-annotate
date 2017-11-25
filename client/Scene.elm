@@ -9,21 +9,23 @@ import TypedSvg.Attributes as Svg exposing (..)
 --
 --
 -- import Input exposing (Event(..))
-import Vector as V exposing (Size, Position, Vector, Box)
+import Vector as V exposing (Size, Position, Vec2, Box)
 import Image exposing (Image)
 
 import Scene.View as View exposing (Geometry)
 import Scene.Settings as Settings exposing (Settings)
 
 import Scene.Types exposing (..)
-import Scene.Document as Doc exposing (Document, Object(..))
+import Scene.Document as Doc
+
+import Types exposing (..)
 
 
 import Input
 import Util exposing (..)
 import Maybe
-import Dict
-import Debug
+-- import Dict
+-- import Debug
 --import Util exposing (..)
 
 
@@ -97,7 +99,7 @@ view f scene = Html.map f <| View.view scene.view
   [ maybeSvg scene.background
       (\i -> image [xlinkHref i.src, x (px 0), y (px 0), width (px i.size.x), height (px i.size.y) ] [])
 
-  , g [] (List.map viewObject (Dict.toList  scene.doc.instances))
+  , g [] (List.map viewObject scene.doc.instances)
   , maybeSvg (maybeAction scene)
       (\action -> Svg.map (always Ignore) <| action.view scene)
   ]
@@ -106,9 +108,16 @@ view f scene = Html.map f <| View.view scene.view
 circle : Position -> Float -> Svg msg
 circle pos radius = Svg.circle [class ["brush"], cx (px pos.x), cy (px pos.y), r (px radius)] []
 
-viewObject : (Doc.Id, Object) -> Svg Msg
-viewObject (id, obj) = case obj of
+rect : Position -> Position -> Svg msg
+rect p1 p2 =
+  let size = V.sub p2 p1
+  in Svg.rect [class ["brush"], x (px p1.x), y (px p1.y), width (px size.x), height (px size.y)] []
+
+
+viewObject : Object -> Svg Msg
+viewObject obj = case obj of
   Point p ->  circle p.position p.radius
+  _       -> g [] []
 
 
 

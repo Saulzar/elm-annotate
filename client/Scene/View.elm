@@ -9,14 +9,14 @@ import TypedSvg exposing (..)
 import TypedSvg.Attributes exposing (..)
 
 import Html exposing (..)
-import Debug
+-- import Debug
 
-import Vector as V exposing (..)
+import Vector as V exposing (Vec2, v2)
 
 type alias Geometry = { bounds : Box, size : Size, pan : Position, zoom : Float }
 
 init : Geometry
-init = { zoom = 1, pan = Vector 0 0, size = Vector 0 0, bounds = Box (Vector 0 0) (Vector 0 0) }
+init = { zoom = 1, pan = v2 0 0, size = v2 0 0, bounds = Box (v2 0 0) (v2 0 0) }
 
 setBounds : Box -> Geometry -> Geometry
 setBounds b geom = {geom | bounds = b}

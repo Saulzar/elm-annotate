@@ -69,13 +69,13 @@ subscriptions f = Sub.batch
 
 
 type alias State =
-  { position : Vector
+  { position : Vec2
   , keys : KeySet
   }
 
 init : State
 init =
-  { position  = Vector 0 0
+  { position  = Vec2 0 0
   , keys = KeySet.empty
   }
 
