@@ -24,7 +24,7 @@ import Types exposing (..)
 import Input
 import Util exposing (..)
 import Maybe
--- import Dict
+import Dict
 -- import Debug
 --import Util exposing (..)
 
@@ -38,9 +38,13 @@ empty =
   , action = Inactive
 
   , doc = Doc.init
+  , nextId = 0
 
   }
 
+
+clear : Scene -> Scene
+clear scene = {scene | background = Nothing, doc = Doc.init}
 
 modifyView : (Geometry -> Geometry) -> Scene -> Scene
 modifyView f scene = {scene | view = f scene.view}
@@ -52,6 +56,15 @@ modifySettings f scene  = {scene | settings = f scene.settings}
 modifyDoc : (Document -> Document) -> Scene -> Scene
 modifyDoc f scene  = {scene | doc = f scene.doc}
 
+incId : Edit -> Scene -> Scene
+incId e scene = case e of
+  Add k _ -> {scene | nextId = Basics.max k scene.nextId + 1}
+  _ -> scene
+
+
+loadDocument : Document -> Scene -> Scene
+loadDocument doc scene = {scene | doc = doc, nextId = Doc.maxIndex doc }
+
 setBackground : Image -> Scene -> Scene
 setBackground image scene = {scene | background = Just image, view = View.setSize image.size scene.view}
 
@@ -60,8 +73,7 @@ runCommand cmd = case cmd of
     Pan pos mouse  -> modifyView (View.pan pos mouse)
     Zoom zoom pos  -> modifyView (View.zoomTo zoom pos)
     ZoomBrush zoom -> modifySettings (Settings.zoomBrush zoom)
-    MakeEdit e ->  modifyDoc (Doc.applyEdit e)
-
+    MakeEdit e -> modifyDoc (Doc.applyEdit e) >> incId e
 
 
 runMaybe : Maybe Command -> Scene -> Scene
@@ -72,7 +84,10 @@ interact input scene = case scene.action of
   Inactive      -> scene
   Active action -> case action.update input scene of
 
-    Continue update cmd -> runMaybe cmd {scene | action = Active update }
+    Continue update cmd -> runMaybe cmd (case update of
+        Nothing     -> scene
+        Just action -> {scene | action = Active action})
+
     End cmd   -> runMaybe cmd {scene | action = Inactive }
     Ignored   -> scene
 
@@ -99,7 +114,7 @@ view f scene = Html.map f <| View.view scene.view
   [ maybeSvg scene.background
       (\i -> image [xlinkHref i.src, x (px 0), y (px 0), width (px i.size.x), height (px i.size.y) ] [])
 
-  , g [] (List.map viewObject scene.doc.instances)
+  , g [] (List.map viewObject (Dict.values scene.doc.instances))
   , maybeSvg (maybeAction scene)
       (\action -> Svg.map (always Ignore) <| action.view scene)
   ]

@@ -1,4 +1,4 @@
-module Drawing exposing (init, update, view, subscriptions, Model, Msg(..), setImage)
+module Drawing exposing (..)
 
 
 import Json.Decode as Json
@@ -35,12 +35,13 @@ type Msg = Input Input.Event | Scene Scene.Msg | NeedsResize | ViewSize Box | Ig
 
 type alias Model = {
   input  : Input.State,
-  scene  : Scene
+  scene  : Scene,
+  enabled : Bool
 }
 
 
 init : (Model, Cmd Msg)
-init = let state = { input = Input.init, scene = Scene.empty  }
+init = let state = { input = Input.init, scene = Scene.empty, enabled = False }
   in (state, Cmd.batch [Element.askGeometry drawingId])
 
 subscriptions : (Msg -> msg) -> Sub msg
@@ -89,7 +90,9 @@ update msg model = case msg of
   NeedsResize -> (model, Element.askGeometry drawingId)
   Input event ->
     let input = Input.update event model.input
-    in noCmd <| updateInput (event, input) { model | input = input }
+    in noCmd <| if model.enabled
+      then (updateInput (event, input) { model | input = input })
+      else model
 
 
   Scene cmd   -> noCmd (modifyScene (Scene.update cmd) model)
@@ -106,7 +109,10 @@ geometry = Element.geometry drawingId (\m -> case m of
     Just geom -> ViewSize geom)
 
 setImage : Image -> Model -> Model
-setImage image model = {model | scene = Scene.setBackground image model.scene}
+setImage image model = {model | scene = Scene.setBackground image model.scene, enabled = True}
+
+clear : Model -> Model
+clear model = { model | scene = Scene.clear model.scene, enabled = False}
 
 
 onContextMenu : msg -> Attribute msg
@@ -129,4 +135,4 @@ events model =
 view : (Msg -> msg) -> List (Html msg) -> Model -> Html msg
 view f overlays model =
   let scene = Html.map f <| div (events model) [Scene.view Scene model.scene]
-  in div [ class "drawing", id drawingId,  tabindex 0] (scene :: overlays)
+  in div [ class "drawing", id drawingId,  tabindex 0 ] (if model.enabled then scene :: overlays else overlays)

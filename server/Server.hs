@@ -18,10 +18,14 @@ import Data.Generics.Product
 import System.FilePath
 import System.Directory
 
+import System.Environment (getArgs)
+
+import Options as Opt
+
 import Data.Char (toLower)
 
-import qualified Data.IntMap as M
-import Data.IntMap (IntMap)
+import qualified Data.Map as M
+import Data.Map (Map)
 
 import Data.Aeson
 
@@ -49,17 +53,17 @@ type ClientId = Int
 
 data Client  = Client
   { connection :: WS.Connection
-  , document   :: Maybe T.Document
+  , document   :: Maybe (String, T.Document)
   } deriving (Generic)
 
 data State    = State
-  { clients :: IntMap Client
+  { clients :: Map Int Client
   , dataset :: Dataset
   } deriving (Generic)
 
 
 type ClientM a = ReaderT (ClientId, MVar State) IO a
-data Error = DecodeError | MissingClient
+data Error = ClientMissing ClientId | DocumentNotOpen | BadEdit String Edit  | DecodeError ByteString | RootDirectoryMissing String
    deriving (Show, Typeable)
 
 instance Exception Error
@@ -86,11 +90,15 @@ disconnectClient clientId stateRef = modifyMVar_ stateRef $ \state -> do
 tryDecode :: (MonadIO m, FromJSON a) => ByteString -> m a
 tryDecode str = case decode str of
     Just req -> return req
-    Nothing -> liftIO (throw DecodeError)
+    Nothing -> liftIO (throw $ DecodeError str)
 
 
 readConfig :: FilePath -> IO Config
-readConfig path = tryDecode =<< BS.readFile (path </> "config.json")
+readConfig path = do
+  r <- decode <$> BS.readFile (path </> "config.json")
+  case r of
+    Nothing -> error ("failed to decode config: " ++ path)
+    Just config -> return config
 
 
 validExtension :: [String] -> FilePath -> Bool
@@ -108,17 +116,20 @@ getInfo path = do
     else Nothing
 
 
+staticRoot :: String
+staticRoot = "html"
+
 
 findImages :: Config -> FilePath -> IO [ImageInfo]
 findImages config root = do
   contents <- listDirectory root
   let matching = filter (validExtension (config ^. field @"extensions")) contents
-  catMaybes <$> mapM getInfo matching
+  catMaybes <$> mapM (getInfo . (root </>)) matching
 
 readDataset :: FilePath -> IO Dataset
 readDataset root = do
-  config <- readConfig root
-  files <- findImages config root
+  config <- readConfig (staticRoot </> root)
+  files <- findImages config (staticRoot </> root)
   return Dataset { path = root, images = files, config = config }
 
 
@@ -128,15 +139,100 @@ getState = do
   liftIO (readMVar stateRef)
 
 
+lookupClient :: State -> ClientId -> Maybe Client
+lookupClient state clientId = M.lookup clientId (state ^. field @"clients")
+
+
+
+
+
 getClient :: ClientM Client
 getClient = do
-  (k, stateRef) <- ask
+  (clientId, stateRef) <- ask
   state <- liftIO (readMVar stateRef)
-
-  case M.lookup k (state ^. field @"clients") of
+  case lookupClient state clientId of
+    Nothing -> liftIO (throw $ ClientMissing clientId)
     Just client -> return client
-    Nothing -> liftIO (throw MissingClient)
 
+
+
+filePath :: State -> FilePath -> FilePath
+filePath state file = staticRoot </> (state ^. field @"dataset" . field @"path") </> file
+
+
+defaultDocument ::  Document
+defaultDocument = Document
+  { undos = []
+  , redos = []
+  , instances = M.empty
+  }
+
+
+loadDocument :: State -> FilePath -> IO (Maybe Document)
+loadDocument state file = do
+  exists <- doesFileExist path
+  if exists
+    then  decode <$> BS.readFile file
+    else return Nothing
+
+  where path = filePath state file
+
+openDocument :: FilePath -> ClientM Document
+openDocument file = do
+  (clientId, stateRef) <- ask
+  doc <- liftIO $ modifyMVar stateRef $ \state -> do
+    doc <- fromMaybe defaultDocument <$> loadDocument state file
+    return (state & _document clientId .~ Just (file, doc), doc )
+
+  return doc
+
+
+flushDocument :: ClientM ()
+flushDocument = do
+  state <- getState
+  mDoc <- view (field @"document") <$> getClient
+
+  forM_ mDoc $ \(file, doc) ->
+    liftIO $ BS.writeFile (filePath state file)  (encode doc)
+
+
+_document :: ClientId -> Traversal' State (Maybe (FilePath, Document))
+_document clientId = field @"clients" . at clientId . traverse . field @"document"
+
+
+modifyDocument :: (Document -> Either String Document) -> ClientM (Maybe String)
+modifyDocument f = do
+  (clientId, stateRef) <- ask
+  liftIO $ modifyMVar stateRef $ \state -> return $
+    case (firstOf (_document clientId . traverse) state) of
+      Nothing     -> (state, Just "document not open")
+      (Just doc)  -> case f (snd doc) of
+          Left err  -> (state, Just err)
+          Right doc' -> (state & (_document clientId . traverse . _2) .~ doc', Nothing)
+
+
+
+runEdit :: Edit -> Document -> Either String Document
+runEdit edit doc = do
+  inverse <- invertEdit doc edit
+  applyEdit edit (doc & field @"undos" %~ (inverse:))
+
+
+applyEdit :: Edit -> Document -> Either String Document
+applyEdit edit doc = return $ case edit of
+  Add k object -> doc & field @"instances" %~ M.insert k object
+  Delete k     -> doc & field @"instances" %~ M.delete k
+
+
+
+invertEdit :: Document -> Edit -> Either String Edit
+invertEdit doc edit = case edit of
+  Add k object -> return (Delete k)
+  Delete k     -> case (M.lookup k instances) of
+    Nothing     -> Left ("delete - key not found: " ++ show k)
+    Just object -> return (Add k object)
+
+    where instances = view (field @"instances") doc
 
 getConnection :: ClientM WS.Connection
 getConnection = view (field @"connection") <$> getClient
@@ -147,6 +243,7 @@ getDataset = view (field @"dataset") <$> getState
 
 respond :: Response -> ClientM ()
 respond response = do
+  liftIO $ print response
   conn <- getConnection
   liftIO $ WS.sendTextData conn (encode response)
 
@@ -159,11 +256,21 @@ request = do
 
 client ::   ClientM ()
 client = forever $ do
-  r <- request
-  case r of
+  req <- request
+  liftIO $ print req
+  case req of
       ReqPing n -> respond (RespPong n)
       ReqDataset -> respond =<< RespDataset <$> getDataset
-      _ -> return ()
+      ReqOpen file -> do
+        doc <- openDocument file
+        respond (RespOpen file doc)
+
+      ReqEdit e -> do
+        maybeErr <- modifyDocument (runEdit e)
+        forM_ maybeErr $ \err -> liftIO (throw (BadEdit err e))
+
+        flushDocument
+      -- _ -> return ()
 
 
 wsApp :: MVar State -> WS.ServerApp
@@ -176,10 +283,35 @@ wsApp stateRef pendingConn = do
     (disconnectClient clientId stateRef)
 
 
+defaultConfig :: Config
+defaultConfig = Config
+  { extensions = [".png", ".jpg", ".jpeg"]
+  }
+
+initConfig :: String -> IO ()
+initConfig root = do
+    exists <- doesFileExist configFile
+    when (not exists) $ do
+      BS.writeFile configFile (encode defaultConfig)
+
+    where
+      configFile = staticRoot </> root </> "config.json"
+
+
+
+
 main :: IO ()
 main = do
+  opts <- Opt.getArgs
 
-  dataset <- readDataset "trees"
+  let root = Opt.root opts
+
+  exists <- doesDirectoryExist (staticRoot </> root)
+  when (not exists) $ throw (RootDirectoryMissing root)
+  when (Opt.create opts) $ initConfig root
+
+  dataset <- readDataset root
+
   state <- newMVar $ State M.empty dataset
   Warp.run 3000 $ WS.websocketsOr
     WS.defaultConnectionOptions
@@ -187,4 +319,4 @@ main = do
     httpApp
 
 httpApp :: Wai.Application
-httpApp = Static.staticApp (Static.defaultWebAppSettings "html")
+httpApp = Static.staticApp (Static.defaultWebAppSettings staticRoot)

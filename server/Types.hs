@@ -9,17 +9,15 @@ import Data.Map (Map)
 
 
 data Vec2 = Vec2 {x :: Float, y :: Float} deriving (Generic, Show)
-data Edit = Append Object | Insert Int  Object | Delete Int deriving (Generic, Show)
+data Edit =  Add Int  Object | Delete Int deriving (Generic, Show)
 
 data Object = Point {position :: Vec2, radius :: Float} | Box { min :: Vec2, max :: Vec2 } deriving (Generic, Show)
 
 data Document = Document
-  { name  :: String
-  , undos :: [Edit]
+  { undos :: [Edit]
   , redos :: [Edit]
 
   , instances :: Map Int Object
-  , nextId :: Int
   } deriving (Generic, Show)
 
 
@@ -41,8 +39,8 @@ data Dataset = Dataset
   } deriving (Generic, Show)
 
 
-data Response = RespDataset Dataset  | RespEdit ImageInfo (Maybe Document) | RespError String | RespPong Int
-data Request = ReqDataset | ReqEdit String | ReqPing Int
+data Response = RespDataset Dataset  | RespOpen String Document | RespError String | RespPong Int deriving (Generic, Show)
+data Request = ReqDataset | ReqOpen String | ReqEdit Edit | ReqPing Int deriving (Generic, Show)
 
 
 

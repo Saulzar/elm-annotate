@@ -20,8 +20,8 @@ function subscribe(app) {
 
 		var onWheel = function(e) {
 	    app.ports.windowMouseWheel.send(e)
-			e.preventDefault()
-			e.stopPropagation()
+			// e.preventDefault()
+			// e.stopPropagation()
 	  }
 
     window.onmousewheel = onWheel;

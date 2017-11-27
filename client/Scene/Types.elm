@@ -18,14 +18,13 @@ import Vector as V exposing (..)
 type Command = Pan Position Position | Zoom Float Position | ZoomBrush Float | MakeEdit Edit
 
 
-
 type alias Action =
   { update : (Input.Event, Input.State) -> Scene -> Update
   , view   : Scene -> Svg ()
   , cursor : String
   }
 
-type Update = Continue Action (Maybe Command) | Ignored | End (Maybe Command)
+type Update = Continue (Maybe Action) (Maybe Command) | Ignored | End (Maybe Command)
 
 type Active = Inactive | Active Action   -- Maybe synonym to break recursive types
 
@@ -41,5 +40,6 @@ type alias Scene =
   ,  settings    : Settings
   ,  action      : Active
   ,  doc         : Document
+  ,  nextId      : Int
 
   }

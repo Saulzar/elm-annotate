@@ -29,15 +29,13 @@ jsonEncVec2  val =
 
 
 type Edit  =
-    Append Object
-    | Insert Int Object
+    Add Int Object
     | Delete Int
 
 jsonDecEdit : Json.Decode.Decoder ( Edit )
 jsonDecEdit =
     let jsonDecDictEdit = Dict.fromList
-            [ ("Append", Json.Decode.map Append (jsonDecObject))
-            , ("Insert", Json.Decode.map2 Insert (Json.Decode.index 0 (Json.Decode.int)) (Json.Decode.index 1 (jsonDecObject)))
+            [ ("Add", Json.Decode.map2 Add (Json.Decode.index 0 (Json.Decode.int)) (Json.Decode.index 1 (jsonDecObject)))
             , ("Delete", Json.Decode.map Delete (Json.Decode.int))
             ]
     in  decodeSumObjectWithSingleField  "Edit" jsonDecDictEdit
@@ -45,8 +43,7 @@ jsonDecEdit =
 jsonEncEdit : Edit -> Value
 jsonEncEdit  val =
     let keyval v = case v of
-                    Append v1 -> ("Append", encodeValue (jsonEncObject v1))
-                    Insert v1 v2 -> ("Insert", encodeValue (Json.Encode.list [Json.Encode.int v1, jsonEncObject v2]))
+                    Add v1 v2 -> ("Add", encodeValue (Json.Encode.list [Json.Encode.int v1, jsonEncObject v2]))
                     Delete v1 -> ("Delete", encodeValue (Json.Encode.int v1))
     in encodeSumObjectWithSingleField keyval val
 
@@ -74,44 +71,40 @@ jsonEncObject  val =
 
 
 type alias Document  =
-   { name: String
-   , undos: (List Edit)
+   { undos: (List Edit)
    , redos: (List Edit)
    , instances: (Dict Int Object)
-   , nextId: Int
    }
 
 jsonDecDocument : Json.Decode.Decoder ( Document )
 jsonDecDocument =
-   ("name" := Json.Decode.string) >>= \pname ->
    ("undos" := Json.Decode.list (jsonDecEdit)) >>= \pundos ->
    ("redos" := Json.Decode.list (jsonDecEdit)) >>= \predos ->
    ("instances" := decodeMap (Json.Decode.int) (jsonDecObject)) >>= \pinstances ->
-   ("nextId" := Json.Decode.int) >>= \pnextId ->
-   Json.Decode.succeed {name = pname, undos = pundos, redos = predos, instances = pinstances, nextId = pnextId}
+   Json.Decode.succeed {undos = pundos, redos = predos, instances = pinstances}
 
 jsonEncDocument : Document -> Value
 jsonEncDocument  val =
    Json.Encode.object
-   [ ("name", Json.Encode.string val.name)
-   , ("undos", (Json.Encode.list << List.map jsonEncEdit) val.undos)
+   [ ("undos", (Json.Encode.list << List.map jsonEncEdit) val.undos)
    , ("redos", (Json.Encode.list << List.map jsonEncEdit) val.redos)
    , ("instances", (encodeMap (Json.Encode.int) (jsonEncObject)) val.instances)
-   , ("nextId", Json.Encode.int val.nextId)
    ]
 
 
 
 type Request  =
     ReqDataset 
-    | ReqEdit String
+    | ReqOpen String
+    | ReqEdit Edit
     | ReqPing Int
 
 jsonDecRequest : Json.Decode.Decoder ( Request )
 jsonDecRequest =
     let jsonDecDictRequest = Dict.fromList
             [ ("ReqDataset", Json.Decode.succeed ReqDataset)
-            , ("ReqEdit", Json.Decode.map ReqEdit (Json.Decode.string))
+            , ("ReqOpen", Json.Decode.map ReqOpen (Json.Decode.string))
+            , ("ReqEdit", Json.Decode.map ReqEdit (jsonDecEdit))
             , ("ReqPing", Json.Decode.map ReqPing (Json.Decode.int))
             ]
     in  decodeSumObjectWithSingleField  "Request" jsonDecDictRequest
@@ -120,7 +113,8 @@ jsonEncRequest : Request -> Value
 jsonEncRequest  val =
     let keyval v = case v of
                     ReqDataset  -> ("ReqDataset", encodeValue (Json.Encode.list []))
-                    ReqEdit v1 -> ("ReqEdit", encodeValue (Json.Encode.string v1))
+                    ReqOpen v1 -> ("ReqOpen", encodeValue (Json.Encode.string v1))
+                    ReqEdit v1 -> ("ReqEdit", encodeValue (jsonEncEdit v1))
                     ReqPing v1 -> ("ReqPing", encodeValue (Json.Encode.int v1))
     in encodeSumObjectWithSingleField keyval val
 
@@ -128,7 +122,7 @@ jsonEncRequest  val =
 
 type Response  =
     RespDataset Dataset
-    | RespEdit ImageInfo (Maybe Document)
+    | RespOpen String Document
     | RespError String
     | RespPong Int
 
@@ -136,7 +130,7 @@ jsonDecResponse : Json.Decode.Decoder ( Response )
 jsonDecResponse =
     let jsonDecDictResponse = Dict.fromList
             [ ("RespDataset", Json.Decode.map RespDataset (jsonDecDataset))
-            , ("RespEdit", Json.Decode.map2 RespEdit (Json.Decode.index 0 (jsonDecImageInfo)) (Json.Decode.index 1 (Json.Decode.maybe (jsonDecDocument))))
+            , ("RespOpen", Json.Decode.map2 RespOpen (Json.Decode.index 0 (Json.Decode.string)) (Json.Decode.index 1 (jsonDecDocument)))
             , ("RespError", Json.Decode.map RespError (Json.Decode.string))
             , ("RespPong", Json.Decode.map RespPong (Json.Decode.int))
             ]
@@ -146,7 +140,7 @@ jsonEncResponse : Response -> Value
 jsonEncResponse  val =
     let keyval v = case v of
                     RespDataset v1 -> ("RespDataset", encodeValue (jsonEncDataset v1))
-                    RespEdit v1 v2 -> ("RespEdit", encodeValue (Json.Encode.list [jsonEncImageInfo v1, (maybeEncode (jsonEncDocument)) v2]))
+                    RespOpen v1 v2 -> ("RespOpen", encodeValue (Json.Encode.list [Json.Encode.string v1, jsonEncDocument v2]))
                     RespError v1 -> ("RespError", encodeValue (Json.Encode.string v1))
                     RespPong v1 -> ("RespPong", encodeValue (Json.Encode.int v1))
     in encodeSumObjectWithSingleField keyval val
@@ -173,22 +167,42 @@ jsonEncImageInfo  val =
 
 
 
+type alias Config  =
+   { extensions: (List String)
+   }
+
+jsonDecConfig : Json.Decode.Decoder ( Config )
+jsonDecConfig =
+   ("extensions" := Json.Decode.list (Json.Decode.string)) >>= \pextensions ->
+   Json.Decode.succeed {extensions = pextensions}
+
+jsonEncConfig : Config -> Value
+jsonEncConfig  val =
+   Json.Encode.object
+   [ ("extensions", (Json.Encode.list << List.map Json.Encode.string) val.extensions)
+   ]
+
+
+
 type alias Dataset  =
    { path: String
    , images: (List ImageInfo)
+   , config: Config
    }
 
 jsonDecDataset : Json.Decode.Decoder ( Dataset )
 jsonDecDataset =
    ("path" := Json.Decode.string) >>= \ppath ->
    ("images" := Json.Decode.list (jsonDecImageInfo)) >>= \pimages ->
-   Json.Decode.succeed {path = ppath, images = pimages}
+   ("config" := jsonDecConfig) >>= \pconfig ->
+   Json.Decode.succeed {path = ppath, images = pimages, config = pconfig}
 
 jsonEncDataset : Dataset -> Value
 jsonEncDataset  val =
    Json.Encode.object
    [ ("path", Json.Encode.string val.path)
    , ("images", (Json.Encode.list << List.map jsonEncImageInfo) val.images)
+   , ("config", jsonEncConfig val.config)
    ]
 
 

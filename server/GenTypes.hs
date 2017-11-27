@@ -48,6 +48,8 @@ elmModule = makeModule' "Types"
   , DefineElm (Proxy @ Response)
 
   , DefineElm (Proxy @ ImageInfo)
+  , DefineElm (Proxy @ Config )
+
   , DefineElm (Proxy @ Dataset)
 
   ]

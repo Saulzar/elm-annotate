@@ -29,14 +29,15 @@ import Drawing
 
 
 
-import Scene.Types as Scene exposing (Action, Active(..), Command(..))
+import Scene.Types as Scene exposing (Scene, Action, Active(..), Command(..))
 
-import Types exposing (Dataset, ImageInfo, Response(..), Request (..))
+import Types exposing (Dataset, ImageInfo, Response(..), Request (..), Edit)
 import Scene
 -- import Input.Window as Window
 -- import Vector exposing (Position)
 
 import Util exposing (..)
+import Debug
 
 main : Program Never Model Msg
 main =
@@ -89,30 +90,76 @@ init loc = let
             , selectedFile = Nothing
             , location = loc
             }
-    cmds  = Cmd.batch [Cmd.map Drawing drawCmd, Cmd.map Network netCmd]
+    cmds  = Cmd.batch
+      [ Cmd.map Drawing drawCmd
+      , Cmd.map Network netCmd
+      , Network.request network.host ReqDataset
+      ]
+
   in  (model, cmds)
+
+
 
 
 imagePath : Dataset -> String -> String
 imagePath dataset file = dataset.path ++ "/" ++ file
 
-handleResponse : Response -> Model -> Model
-handleResponse r model = model
+
+modifyScene : (Scene -> Scene) -> Model -> Model
+modifyScene f model = {model | drawing = Drawing.modifyScene f model.drawing}
+
+
+handleResponse : Maybe Response -> Model -> (Model, Cmd Msg)
+handleResponse r model = case r of
+  (Just (RespDataset d)) -> let m = {model | dataset = Just d} in
+    case List.head d.images of
+      Nothing -> noCmd m
+      Just info -> selectImage (info.file) m
+
+  (Just (RespOpen file doc)) -> noCmd (modifyScene (Scene.loadDocument doc) model)
+  _ -> noCmd model
+
+
+selectImage : String -> Model -> (Model, Cmd Msg)
+selectImage file model = case model.dataset of
+  Just dataset -> ({ model | selectedFile = Just file, drawing = Drawing.clear model.drawing },
+    Cmd.batch [Image.loadImage (imagePath dataset file), Network.request model.network.host (ReqOpen file)] )
+  Nothing -> noCmd model
+
+
+withCmd : Cmd msg -> (a, Cmd msg) -> (a, Cmd msg)
+withCmd cmd (a, cmds) = (a, Cmd.batch [cmd, cmds])
+
+
+
+getEdits : Drawing.Msg -> Maybe Edit
+getEdits msg = case msg of
+  (Drawing.Scene (Scene.Run (MakeEdit e))) -> Just e
+  _   -> Nothing
+
+
+editRequest : Model -> Edit -> Cmd msg
+editRequest model e = Network.request model.network.host (ReqEdit e)
+
+reportEdits : Model -> Drawing.Msg -> Cmd msg
+reportEdits model msg =  Maybe.withDefault Cmd.none <|
+  Maybe.map (editRequest model) (getEdits msg)
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model = case msg of
-    Drawing msg   -> let (drawing, cmds) = Drawing.update msg model.drawing in ({ model | drawing = drawing}, Cmd.map Drawing cmds)
+    Drawing msg   ->
+      let (drawing, cmds) = Drawing.update msg model.drawing
+      in ({ model | drawing = drawing}, Cmd.batch [Cmd.map Drawing cmds, reportEdits model msg])
+
     Tabs state -> noCmd { model | tabs = state }
     Accordion state -> noCmd { model | accordion = state }
-    Select file -> case model.dataset of
-      Just dataset -> ({ model | selectedFile = Just file}, Image.loadImage (imagePath dataset file))
-      Nothing -> noCmd model
+    Select file -> selectImage file model
 
     ImageLoaded i -> noCmd { model | drawing = Drawing.setImage i model.drawing }
     UrlChange _ -> noCmd model
     Network m ->
       let (state, resp, cmd) = Network.update m model.network
-      in (applyMaybe handleResponse resp {model | network = state}, Cmd.map Network cmd)
+      in withCmd  (Cmd.map Network cmd) (handleResponse resp {model | network = state})
 
 
 
@@ -176,41 +223,12 @@ tab identifier title content =  Tab.item
     }
 
 
--- select options = select
--- selectFrom : List String -> Html Msg
--- selectFrom opts = select [multiple True, class "form-control"]
---   (List.map (text >> List.singleton >> option []) opts)
-
 
 item : String -> Select.Item msg
 item v = Select.item [value v] [text v]
 
-
-
--- targetSelectedIndex : Json.Decoder Int
--- targetSelectedIndex =
---     Json.at [ "target", "selectedIndex" ] Json.int
---
---
--- onSelect : (Int -> msg) -> Html.Attribute msg
--- onSelect msg = on "change" (Json.map msg targetSelectedIndex)
---
---
--- selectImage : List D.Image -> Html Msg
--- selectImage images = Select.select [Select.attrs [size 5] ]
---   <| List.map imageEntry images
-
-
--- imageEntry : D.Image -> Select.Item Msg
--- imageEntry image = Select.item [value image.file] <|
---     [text (icon ++ image.file)]
-
 header : Table.THead msg
-header = Table.simpleThead
-    [ Table.th [] []
-    , Table.th [] []
-    ]
-
+header = Table.simpleThead [ Table.th [] [], Table.th [] []  ]
 
 toRow : Maybe String -> ImageInfo -> (String, Table.Row Msg)
 toRow active image = let
@@ -222,9 +240,9 @@ toRow active image = let
   in (image.file, Table.tr options table)
 
 
-selectImage : Model -> List ImageInfo ->  Html Msg
-selectImage model images = div [class "scroll"] [Table.table
-    { options = [ Table.small, Table.hover, Table.attr <| class "image_select" ] -- list of table options
+imageSelector : Model -> List ImageInfo ->  Html Msg
+imageSelector model images = div [class "select"] [Table.table
+    { options = [ Table.small, Table.hover ] -- list of table options
     , thead = header
     , tbody = Table.keyedTBody [] (List.map (toRow model.selectedFile) images)
     }]
@@ -238,7 +256,7 @@ sidebar model =
         -- |> Tab.left
         |> Tab.items [
             tab "images" "Images" [
-              selectImage model (case model.dataset of
+              imageSelector model (case model.dataset of
                 Nothing -> []
                 Just dataset -> dataset.images)
             ],
