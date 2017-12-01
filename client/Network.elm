@@ -42,7 +42,7 @@ type alias State =
   }
 
 timeoutTime : Time
-timeoutTime = 2 * Time.second
+timeoutTime = 20 * Time.second
 
 type Msg = Timeout | Response Response
 
@@ -64,7 +64,7 @@ update msg state = case msg of
 
   Response r -> case r of
     RespPong n -> ( {state | recievedPong = n} , Nothing, Cmd.none)
-    _ -> (state, Just r, Cmd.none) 
+    _ -> (state, Just r, Cmd.none)
 
 
 subscriptions : State -> (Msg -> msg) -> Sub msg

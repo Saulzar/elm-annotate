@@ -37,3 +37,19 @@ removeAt : Int -> List a -> List a
 removeAt i xs = let (prev, after) = List.splitAt i xs in case after of
   [] -> xs
   (a :: rest) -> prev ++ rest
+
+maybeToList : Maybe a -> List a
+maybeToList ma = case ma of
+  Nothing -> []
+  Just a  -> [a]
+
+
+addCmd : Cmd msg -> (a, Cmd msg) -> (a, Cmd msg)
+addCmd cmd (a, cmds) = (a, Cmd.batch [cmd, cmds])
+
+
+withCmd : (a -> m -> (m, Cmd msg)) -> (a -> (m, Cmd msg) -> (m, Cmd msg))
+withCmd f a (model1, cmd1) = let (model2, cmd2) = f a model1 in (model2, Cmd.batch [cmd1, cmd2])
+
+foldUpdate : (a -> m -> (m, Cmd msg)) -> m -> List a -> (m, Cmd msg)
+foldUpdate f model = List.foldr (withCmd f) (model, Cmd.none)

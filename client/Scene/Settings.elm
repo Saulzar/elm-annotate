@@ -14,6 +14,4 @@ init =
   }
 
 zoomBrush : Float ->  Settings -> Settings
-zoomBrush zoom  settings = let
-    factor = 1 - zoom / 500
-  in  {settings | brushRadius = V.clamp (1, 200) (settings.brushRadius * factor)}
+zoomBrush zoom  settings = {settings | brushRadius = V.clamp (1, 200) (zoom * settings.brushRadius)}

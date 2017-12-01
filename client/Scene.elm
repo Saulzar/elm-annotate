@@ -6,10 +6,11 @@ import TypedSvg.Core as Svg exposing (Svg)
 import TypedSvg.Types as Svg exposing (..)
 import TypedSvg  as Svg exposing (..)
 import TypedSvg.Attributes as Svg exposing (..)
+
 --
 --
 -- import Input exposing (Event(..))
-import Vector as V exposing (Size, Position, Vec2, Box)
+import Vector as V exposing (Size, Position, Vec2)
 import Image exposing (Image)
 
 import Scene.View as View exposing (Geometry)
@@ -17,11 +18,13 @@ import Scene.Settings as Settings exposing (Settings)
 
 import Scene.Types exposing (..)
 import Scene.Document as Doc
+import Scene.Action as Action
 
 import Types exposing (..)
 
-
 import Input
+import Input.Mouse as Mouse
+
 import Util exposing (..)
 import Maybe
 import Dict
@@ -40,6 +43,7 @@ empty =
   , doc = Doc.init
   , nextId = 0
 
+  , selection = []
   }
 
 
@@ -63,10 +67,12 @@ incId e scene = case e of
 
 
 loadDocument : Document -> Scene -> Scene
-loadDocument doc scene = {scene | doc = doc, nextId = Doc.maxIndex doc }
+loadDocument doc scene = {scene | doc = doc, nextId = 1 + Maybe.withDefault 0 (Doc.maxIndex doc) }
 
 setBackground : Image -> Scene -> Scene
 setBackground image scene = {scene | background = Just image, view = View.setSize image.size scene.view}
+
+
 
 runCommand : Command -> Scene -> Scene
 runCommand cmd = case cmd of
@@ -75,21 +81,27 @@ runCommand cmd = case cmd of
     ZoomBrush zoom -> modifySettings (Settings.zoomBrush zoom)
     MakeEdit e -> modifyDoc (Doc.applyEdit e) >> incId e
 
+    Select ids -> \scene -> {scene | selection = ids}
+
 
 runMaybe : Maybe Command -> Scene -> Scene
 runMaybe = applyMaybe runCommand
 
-interact : (Input.Event, Input.State) -> Scene -> Scene
+toMsg : Maybe Command -> List Msg
+toMsg mCmd = case mCmd of
+  Nothing  -> []
+  Just cmd -> [Run cmd]
+
+interact : (Input.Event, Input.State) -> Scene -> List Msg
 interact input scene = case scene.action of
-  Inactive      -> scene
+  Inactive      -> []
   Active action -> case action.update input scene of
+    Continue update cmd -> toMsg cmd ++ case update of
+        Nothing     -> []
+        Just action -> [Update action]
 
-    Continue update cmd -> runMaybe cmd (case update of
-        Nothing     -> scene
-        Just action -> {scene | action = Active action})
-
-    End cmd   -> runMaybe cmd {scene | action = Inactive }
-    Ignored   -> scene
+    End cmd   -> Cancel :: toMsg cmd
+    Ignored   -> []
 
 
 setBounds : Box -> Scene -> Scene
@@ -109,31 +121,67 @@ maybeAction scene = case scene.action of
   Inactive      -> Nothing
   Active action -> Just action
 
-view : (Msg -> msg) -> Scene -> Html msg
-view f scene = Html.map f <| View.view scene.view
+
+
+view : (Msgs -> msg) -> Input.State -> Scene -> Html msg
+view f input scene =
+  let scene_ = case scene.action of
+    Inactive -> scene
+    Active action -> List.foldr runCommand scene action.pending
+
+  in Html.map f (view_ input scene_)
+
+view_ : Input.State -> Scene -> Html Msgs
+view_ input scene = View.view scene.view
   [ maybeSvg scene.background
       (\i -> image [xlinkHref i.src, x (px 0), y (px 0), width (px i.size.x), height (px i.size.y) ] [])
 
-  , g [] (List.map viewObject (Dict.values scene.doc.instances))
+  , g [] (List.map (viewObject input scene) (Dict.toList scene.doc.instances))
   , maybeSvg (maybeAction scene)
-      (\action -> Svg.map (always Ignore) <| action.view scene)
+      (\action -> Svg.map (always []) <| action.view scene)
   ]
 
 
+
+maybeWhen : (a -> Bool) -> b -> a ->  Maybe b
+maybeWhen f b a = if f a then Just b else Nothing
+
+equals : a -> a -> Bool
+equals a b = a == b
+
 circle : Position -> Float -> Svg msg
-circle pos radius = Svg.circle [class ["brush"], cx (px pos.x), cy (px pos.y), r (px radius)] []
+circle pos radius = Svg.circle
+  [ class ["object"]
+  , cx (px pos.x), cy (px pos.y), r (px radius)
+  ] []
 
 rect : Position -> Position -> Svg msg
 rect p1 p2 =
   let size = V.sub p2 p1
-  in Svg.rect [class ["brush"], x (px p1.x), y (px p1.y), width (px size.x), height (px size.y)] []
+  in Svg.rect [class ["object"], x (px p1.x), y (px p1.y), width (px size.x), height (px size.y)] []
 
 
-viewObject : Object -> Svg Msg
-viewObject obj = case obj of
-  Point p ->  circle p.position p.radius
-  _       -> g [] []
+isSelected : Scene -> Int -> Bool
+isSelected scene id = List.member id scene.selection
 
+
+select : List Int -> Msg
+select ids = Run (Select ids)
+
+edit : Edit -> Msg
+edit = Run << MakeEdit
+
+viewObject : Input.State -> Scene -> (Int, Object) -> Svg Msgs
+viewObject input scene (id, obj) =
+  let selected = isSelected scene id
+      render = case obj of
+        ObjPoint p ->  circle p.position p.radius
+        _       -> g [] []
+
+      local = View.toLocal scene.view input.position
+      msg = [select [id], Start (Action.dragObjects Mouse.Left [id] local)]
+  in g [ class (if selected then ["selected"] else [])
+       , Mouse.onDown_ (maybeWhen (equals Mouse.Left) msg) ] [render]
 
 
 zoomCentre : Scene -> Float -> Command
@@ -150,9 +198,15 @@ update msg scene = case msg of
     Inactive -> { scene | action = Active action }
     _        -> scene
 
+  Update action -> case scene.action of
+    Active _ -> { scene | action = Active action }
+    _        -> scene
+
   Run cmd -> runCommand cmd scene
   Cancel  -> cancelAction scene
   Ignore -> scene
+
+
 
 
 

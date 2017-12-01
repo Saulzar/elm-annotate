@@ -14,6 +14,7 @@ import Control.Lens
 
 import GHC.Generics
 import Data.Generics.Product
+import Data.Generics.Labels()
 
 import System.FilePath
 import System.Directory
@@ -27,7 +28,7 @@ import Data.Char (toLower)
 import qualified Data.Map as M
 import Data.Map (Map)
 
-import Data.Aeson
+import Data.Aeson hiding (Object)
 
 import qualified Data.ByteString.Lazy                      as BS
 import Data.ByteString.Lazy (ByteString)
@@ -172,7 +173,7 @@ loadDocument :: State -> FilePath -> IO (Maybe Document)
 loadDocument state file = do
   exists <- doesFileExist path
   if exists
-    then  decode <$> BS.readFile file
+    then  decode <$> BS.readFile path
     else return Nothing
 
   where path = filePath state file
@@ -192,7 +193,8 @@ flushDocument = do
   state <- getState
   mDoc <- view (field @"document") <$> getClient
 
-  forM_ mDoc $ \(file, doc) ->
+  forM_ mDoc $ \(file, doc) -> do
+    liftIO $ print (filePath state file)
     liftIO $ BS.writeFile (filePath state file)  (encode doc)
 
 
@@ -214,25 +216,36 @@ modifyDocument f = do
 
 runEdit :: Edit -> Document -> Either String Document
 runEdit edit doc = do
-  inverse <- invertEdit doc edit
-  applyEdit edit (doc & field @"undos" %~ (inverse:))
+  (inverse, doc') <- applyEdit edit doc
 
-
-applyEdit :: Edit -> Document -> Either String Document
-applyEdit edit doc = return $ case edit of
-  Add k object -> doc & field @"instances" %~ M.insert k object
-  Delete k     -> doc & field @"instances" %~ M.delete k
+  return $ doc & field @"undos" %~ (inverse:)
 
 
 
-invertEdit :: Document -> Edit -> Either String Edit
-invertEdit doc edit = case edit of
-  Add k object -> return (Delete k)
-  Delete k     -> case (M.lookup k instances) of
+accumEdits :: Edit -> ([Edit], Document) -> Either String ([Edit], Document)
+accumEdits edit (inverses, doc) = do
+  (inv, doc') <- applyEdit edit doc
+  return (inv : inverses, doc')
+
+
+transformObj :: Float -> Vec2 -> Object -> Object
+transformObj = undefined
+
+instance Num Vec2 where
+  negate (Vec2 x y) = Vec2 (-x) (-y)
+
+applyEdit :: Edit -> Document -> Either String (Edit, Document)
+applyEdit edit doc =  case edit of
+  Add k object -> return (Delete k, doc & #instances %~ M.insert k object)
+  Delete k     -> case (M.lookup k (doc ^. #instances)) of
     Nothing     -> Left ("delete - key not found: " ++ show k)
-    Just object -> return (Add k object)
+    Just object -> return (Add k object, doc & #instances %~ M.delete k)
+  Transform ks s v -> return
+    ( Transform ks (1/s) (negate v)
+    , foldr (\k -> over (#instances . at k . traverse) (transformObj s v)) doc ks)
 
-    where instances = view (field @"instances") doc
+  Many edits -> over _1 Many <$> foldM (flip accumEdits) ([], doc) edits
+
 
 getConnection :: ClientM WS.Connection
 getConnection = view (field @"connection") <$> getClient
@@ -244,6 +257,7 @@ getDataset = view (field @"dataset") <$> getState
 respond :: Response -> ClientM ()
 respond response = do
   liftIO $ print response
+
   conn <- getConnection
   liftIO $ WS.sendTextData conn (encode response)
 
@@ -262,7 +276,7 @@ client = forever $ do
       ReqPing n -> respond (RespPong n)
       ReqDataset -> respond =<< RespDataset <$> getDataset
       ReqOpen file -> do
-        doc <- openDocument file
+        doc <- openDocument (file ++ ".json")
         respond (RespOpen file doc)
 
       ReqEdit e -> do
@@ -277,7 +291,7 @@ wsApp :: MVar State -> WS.ServerApp
 wsApp stateRef pendingConn = do
   conn <- WS.acceptRequest pendingConn
   clientId <- connectClient conn stateRef
-  -- WS.forkPingThread conn 30
+  WS.forkPingThread conn 30
   Exception.finally
     (runReaderT client (clientId, stateRef))
     (disconnectClient clientId stateRef)

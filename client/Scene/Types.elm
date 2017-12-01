@@ -15,13 +15,14 @@ import Types exposing (..)
 
 import Vector as V exposing (..)
 
-type Command = Pan Position Position | Zoom Float Position | ZoomBrush Float | MakeEdit Edit
+type Command = Select (List Int) | Pan Position Position | Zoom Float Position | ZoomBrush Float | MakeEdit Edit
 
 
 type alias Action =
   { update : (Input.Event, Input.State) -> Scene -> Update
   , view   : Scene -> Svg ()
   , cursor : String
+  , pending : List Command
   }
 
 type Update = Continue (Maybe Action) (Maybe Command) | Ignored | End (Maybe Command)
@@ -32,7 +33,8 @@ type Active = Inactive | Active Action   -- Maybe synonym to break recursive typ
 
 
 
-type Msg = Start Action | Run Command | Cancel | Ignore
+type Msg = Start Action | Update Action | Run Command | Cancel | Ignore
+type alias Msgs = List Msg
 
 type alias Scene =
   {  background  : Maybe Image
@@ -42,4 +44,5 @@ type alias Scene =
   ,  doc         : Document
   ,  nextId      : Int
 
+  , selection : List Int
   }

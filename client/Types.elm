@@ -28,15 +28,39 @@ jsonEncVec2  val =
 
 
 
+type alias Box  =
+   { position: Vec2
+   , size: Vec2
+   }
+
+jsonDecBox : Json.Decode.Decoder ( Box )
+jsonDecBox =
+   ("position" := jsonDecVec2) >>= \pposition ->
+   ("size" := jsonDecVec2) >>= \psize ->
+   Json.Decode.succeed {position = pposition, size = psize}
+
+jsonEncBox : Box -> Value
+jsonEncBox  val =
+   Json.Encode.object
+   [ ("position", jsonEncVec2 val.position)
+   , ("size", jsonEncVec2 val.size)
+   ]
+
+
+
 type Edit  =
     Add Int Object
     | Delete Int
+    | Transform (List Int) Float Vec2
+    | Many (List Edit)
 
 jsonDecEdit : Json.Decode.Decoder ( Edit )
 jsonDecEdit =
     let jsonDecDictEdit = Dict.fromList
-            [ ("Add", Json.Decode.map2 Add (Json.Decode.index 0 (Json.Decode.int)) (Json.Decode.index 1 (jsonDecObject)))
-            , ("Delete", Json.Decode.map Delete (Json.Decode.int))
+            [ ("Add", Json.Decode.lazy (\_ -> Json.Decode.map2 Add (Json.Decode.index 0 (Json.Decode.int)) (Json.Decode.index 1 (jsonDecObject))))
+            , ("Delete", Json.Decode.lazy (\_ -> Json.Decode.map Delete (Json.Decode.int)))
+            , ("Transform", Json.Decode.lazy (\_ -> Json.Decode.map3 Transform (Json.Decode.index 0 (Json.Decode.list (Json.Decode.int))) (Json.Decode.index 1 (Json.Decode.float)) (Json.Decode.index 2 (jsonDecVec2))))
+            , ("Many", Json.Decode.lazy (\_ -> Json.Decode.map Many (Json.Decode.list (jsonDecEdit))))
             ]
     in  decodeSumObjectWithSingleField  "Edit" jsonDecDictEdit
 
@@ -45,27 +69,29 @@ jsonEncEdit  val =
     let keyval v = case v of
                     Add v1 v2 -> ("Add", encodeValue (Json.Encode.list [Json.Encode.int v1, jsonEncObject v2]))
                     Delete v1 -> ("Delete", encodeValue (Json.Encode.int v1))
+                    Transform v1 v2 v3 -> ("Transform", encodeValue (Json.Encode.list [(Json.Encode.list << List.map Json.Encode.int) v1, Json.Encode.float v2, jsonEncVec2 v3]))
+                    Many v1 -> ("Many", encodeValue ((Json.Encode.list << List.map jsonEncEdit) v1))
     in encodeSumObjectWithSingleField keyval val
 
 
 
 type Object  =
-    Point {position: Vec2, radius: Float}
-    | Box {min: Vec2, max: Vec2}
+    ObjPoint {position: Vec2, radius: Float}
+    | ObjBox Box
 
 jsonDecObject : Json.Decode.Decoder ( Object )
 jsonDecObject =
     let jsonDecDictObject = Dict.fromList
-            [ ("Point", Json.Decode.map Point (   ("position" := jsonDecVec2) >>= \pposition ->    ("radius" := Json.Decode.float) >>= \pradius ->    Json.Decode.succeed {position = pposition, radius = pradius}))
-            , ("Box", Json.Decode.map Box (   ("min" := jsonDecVec2) >>= \pmin ->    ("max" := jsonDecVec2) >>= \pmax ->    Json.Decode.succeed {min = pmin, max = pmax}))
+            [ ("ObjPoint", Json.Decode.map ObjPoint (   ("position" := jsonDecVec2) >>= \pposition ->    ("radius" := Json.Decode.float) >>= \pradius ->    Json.Decode.succeed {position = pposition, radius = pradius}))
+            , ("ObjBox", Json.Decode.lazy (\_ -> Json.Decode.map ObjBox (jsonDecBox)))
             ]
     in  decodeSumObjectWithSingleField  "Object" jsonDecDictObject
 
 jsonEncObject : Object -> Value
 jsonEncObject  val =
     let keyval v = case v of
-                    Point vs -> ("Point", encodeObject [("position", jsonEncVec2 vs.position), ("radius", Json.Encode.float vs.radius)])
-                    Box vs -> ("Box", encodeObject [("min", jsonEncVec2 vs.min), ("max", jsonEncVec2 vs.max)])
+                    ObjPoint vs -> ("ObjPoint", encodeObject [("position", jsonEncVec2 vs.position), ("radius", Json.Encode.float vs.radius)])
+                    ObjBox v1 -> ("ObjBox", encodeValue (jsonEncBox v1))
     in encodeSumObjectWithSingleField keyval val
 
 
@@ -102,10 +128,10 @@ type Request  =
 jsonDecRequest : Json.Decode.Decoder ( Request )
 jsonDecRequest =
     let jsonDecDictRequest = Dict.fromList
-            [ ("ReqDataset", Json.Decode.succeed ReqDataset)
-            , ("ReqOpen", Json.Decode.map ReqOpen (Json.Decode.string))
-            , ("ReqEdit", Json.Decode.map ReqEdit (jsonDecEdit))
-            , ("ReqPing", Json.Decode.map ReqPing (Json.Decode.int))
+            [ ("ReqDataset", Json.Decode.lazy (\_ -> Json.Decode.succeed ReqDataset))
+            , ("ReqOpen", Json.Decode.lazy (\_ -> Json.Decode.map ReqOpen (Json.Decode.string)))
+            , ("ReqEdit", Json.Decode.lazy (\_ -> Json.Decode.map ReqEdit (jsonDecEdit)))
+            , ("ReqPing", Json.Decode.lazy (\_ -> Json.Decode.map ReqPing (Json.Decode.int)))
             ]
     in  decodeSumObjectWithSingleField  "Request" jsonDecDictRequest
 
@@ -129,10 +155,10 @@ type Response  =
 jsonDecResponse : Json.Decode.Decoder ( Response )
 jsonDecResponse =
     let jsonDecDictResponse = Dict.fromList
-            [ ("RespDataset", Json.Decode.map RespDataset (jsonDecDataset))
-            , ("RespOpen", Json.Decode.map2 RespOpen (Json.Decode.index 0 (Json.Decode.string)) (Json.Decode.index 1 (jsonDecDocument)))
-            , ("RespError", Json.Decode.map RespError (Json.Decode.string))
-            , ("RespPong", Json.Decode.map RespPong (Json.Decode.int))
+            [ ("RespDataset", Json.Decode.lazy (\_ -> Json.Decode.map RespDataset (jsonDecDataset)))
+            , ("RespOpen", Json.Decode.lazy (\_ -> Json.Decode.map2 RespOpen (Json.Decode.index 0 (Json.Decode.string)) (Json.Decode.index 1 (jsonDecDocument))))
+            , ("RespError", Json.Decode.lazy (\_ -> Json.Decode.map RespError (Json.Decode.string)))
+            , ("RespPong", Json.Decode.lazy (\_ -> Json.Decode.map RespPong (Json.Decode.int)))
             ]
     in  decodeSumObjectWithSingleField  "Response" jsonDecDictResponse
 

@@ -40,6 +40,7 @@ makeModule' moduleName defs = unlines $
 elmModule :: String
 elmModule = makeModule' "Types"
   [ DefineElm (Proxy @ Vec2)
+  , DefineElm (Proxy @ Box)
   , DefineElm (Proxy @ Edit)
   , DefineElm (Proxy @ Object)
   , DefineElm (Proxy @ Document)

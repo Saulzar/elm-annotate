@@ -81,6 +81,9 @@ decodeScroll : Decoder ScrollDelta
 decodeScroll = map3 ScrollDelta (field "deltaX" float) (field "deltaY" float) (field "deltaZ" float)
 
 
+zoomBy : ScrollDelta -> Float
+zoomBy deltas = (1 - deltas.dy / 500)
+
 toButton : Int -> Button
 toButton b = case b of
     0 -> Left
@@ -105,3 +108,24 @@ onUp f = on "mouseup"    (Json.map f decodeButton)
 
 onWheel : (ScrollDelta -> msg)  -> Attribute msg
 onWheel f = on "wheel"    (Json.map f decodeScroll)
+
+
+
+on_ : String -> Decoder (Maybe msg) -> Attribute msg
+on_ event decoder = onWithOptions event {stopPropagation = True, preventDefault = True}
+  (decoder |> Json.andThen (\m -> case m of
+    Nothing  -> Json.fail "ignored"
+    Just msg -> Json.succeed msg))
+
+
+onMove_ : (Position -> Maybe msg) -> Attribute msg
+onMove_ f = on_ "mousemove" (Json.map f decodeClient)
+
+onDown_ : (Button -> Maybe msg) -> Attribute msg
+onDown_ f = on_ "mousedown"  (Json.map f decodeButton)
+
+onUp_ : (Button -> Maybe msg) -> Attribute msg
+onUp_ f = on_ "mouseup"    (Json.map f decodeButton)
+
+onWheel_ : (ScrollDelta -> Maybe msg)  -> Attribute msg
+onWheel_ f = on_ "wheel"    (Json.map f decodeScroll)

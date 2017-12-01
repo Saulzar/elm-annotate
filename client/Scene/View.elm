@@ -30,9 +30,7 @@ pan pos page geom = let
     in {geom | pan = V.add geom.pan dPos}
 
 zoom : Float -> Geometry -> Geometry
-zoom amount geom = let
-    factor = 1 - amount / 500
-  in  {geom | zoom = V.clamp (0.25, 4) (geom.zoom * factor)}
+zoom factor geom = {geom | zoom = V.clamp (0.25, 4) (geom.zoom * factor)}
 
 
 zoomTo : Float -> Position -> Geometry -> Geometry

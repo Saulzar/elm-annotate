@@ -29,6 +29,8 @@ action =
   { update = \_ _ -> end
   , cursor = "default"
   , view = always (g [] [])
+
+  , pending = []
   }
 
 
@@ -42,7 +44,7 @@ command cmd = Continue Nothing (Just cmd)
 
 rec : ((a -> Action) -> a -> Action) -> a -> Action
 rec f initial =
-  let set = \state -> f set state
+  let set state = f set state
   in f set initial
 
 end : Update
@@ -72,6 +74,33 @@ pan = rec <| \set pos -> {action
   }
 
 
+type alias DragState = {origin : Position, pos : Position, scale : Float}
+
+dragObjects : Mouse.Button -> List Int -> Position -> Action
+dragObjects button selection pos = dragObjects_ button selection (DragState pos pos 1)
+
+
+
+dragObjects_ : Mouse.Button -> List Int -> DragState -> Action
+dragObjects_ button selection = rec <| \set state ->
+  let edits = MakeEdit (Transform selection state.scale (V.sub state.pos state.origin))
+
+
+  in { action
+    | update = \(e, _) scene -> case e of
+        MouseMove mouse ->
+          update <| set {state | pos = View.toLocal scene.view mouse}
+
+        MouseWheel deltas ->
+          update <| set {state | scale = state.scale * Mouse.zoomBy deltas }
+
+        MouseUp b -> when (b == button) (End (Just edits))
+        _           -> Ignored
+  , cursor = "move"
+  , pending = [edits]
+  }
+
+
 circle : Position -> Float -> Svg msg
 circle pos radius = Svg.circle [class ["brush"], cx (px pos.x), cy (px pos.y), r (px radius)] []
 
@@ -79,21 +108,19 @@ circle pos radius = Svg.circle [class ["brush"], cx (px pos.x), cy (px pos.y), r
 
 drawPoints : Key -> Position -> Action
 drawPoints key = rec <| \set pos -> {action
-    | update = \(e, _) scene ->
-      case e of
-          MouseMove mouse ->
-            update (set (View.toLocal scene.view mouse))
+    | update = \(e, _) scene -> case e of
+        MouseMove mouse ->
+          update (set (View.toLocal scene.view mouse))
 
-          MouseWheel deltas ->
-            command (ZoomBrush deltas.dy)
+        MouseWheel deltas ->
+          command (ZoomBrush <| Mouse.zoomBy deltas)
 
-          Click b -> when (b == Mouse.Left) <|
-            command (createObject scene (Point {position = pos, radius = scene.settings.brushRadius}))
+        Click b -> when (b == Mouse.Left) <|
+          command (createObject scene (ObjPoint {position = pos, radius = scene.settings.brushRadius}))
 
-          KeyUp k   -> when (k == key) end
+        KeyUp k   -> when (k == key) end
+        _           -> Ignored
 
-          _           -> Ignored
     , view = \scene -> circle pos scene.settings.brushRadius
-
     , cursor = "none"
     }

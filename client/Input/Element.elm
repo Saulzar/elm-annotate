@@ -4,6 +4,7 @@ port module Input.Element exposing (..)
 -- import Task exposing (Task)
 
 import Vector as V exposing (Vec2, Position, Size, Box, v2)
+import VirtualDom exposing (on, onWithOptions)
 
 import Json.Decode exposing (..)
 
