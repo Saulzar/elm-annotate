@@ -22,6 +22,8 @@ import Scene.Action as Action
 
 import Types exposing (..)
 
+import Tuple exposing (..)
+
 import Input
 import Input.Mouse as Mouse
 
@@ -41,7 +43,7 @@ empty =
   , action = Inactive
 
   , doc = Doc.init
-  , nextId = 0
+  , nextId = (0, 0)
 
   , selection = []
   }
@@ -60,14 +62,17 @@ modifySettings f scene  = {scene | settings = f scene.settings}
 modifyDoc : (Document -> Document) -> Scene -> Scene
 modifyDoc f scene  = {scene | doc = f scene.doc}
 
-incId : Edit -> Scene -> Scene
-incId e scene = case e of
-  Add k _ -> {scene | nextId = Basics.max k scene.nextId + 1}
-  _ -> scene
+incId : Scene -> Scene
+incId scene = let incId (object, client) = (object + 1, client) in
+  {scene | nextId = incId scene.nextId}
+
 
 
 loadDocument : Document -> Scene -> Scene
-loadDocument doc scene = {scene | doc = doc, nextId = 1 + Maybe.withDefault 0 (Doc.maxIndex doc) }
+loadDocument doc scene = { scene
+  | doc = doc
+  , nextId = (1 + Maybe.withDefault 0 (Doc.maxObject doc), second scene.nextId)
+  }
 
 setBackground : Image -> Scene -> Scene
 setBackground image scene = {scene | background = Just image, view = View.setSize image.size scene.view}
@@ -79,7 +84,7 @@ runCommand cmd = case cmd of
     Pan pos mouse  -> modifyView (View.pan pos mouse)
     Zoom zoom pos  -> modifyView (View.zoomTo zoom pos)
     ZoomBrush zoom -> modifySettings (Settings.zoomBrush zoom)
-    MakeEdit e -> modifyDoc (Doc.applyEdit e) >> incId e
+    MakeEdit e -> modifyDoc (Doc.applyEdit e) >> incId
 
     Select ids -> \scene -> {scene | selection = ids}
 
@@ -161,17 +166,17 @@ rect p1 p2 =
   in Svg.rect [class ["object"], x (px p1.x), y (px p1.y), width (px size.x), height (px size.y)] []
 
 
-isSelected : Scene -> Int -> Bool
+isSelected : Scene -> ObjId -> Bool
 isSelected scene id = List.member id scene.selection
 
 
-select : List Int -> Msg
+select : List ObjId -> Msg
 select ids = Run (Select ids)
 
 edit : Edit -> Msg
 edit = Run << MakeEdit
 
-viewObject : Input.State -> Scene -> (Int, Object) -> Svg Msgs
+viewObject : Input.State -> Scene -> (ObjId, Object) -> Svg Msgs
 viewObject input scene (id, obj) =
   let selected = isSelected scene id
       render = case obj of

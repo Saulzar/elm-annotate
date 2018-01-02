@@ -9,13 +9,16 @@ import TypedSvg.Core exposing (Svg)
 import Scene.View as View exposing (Geometry)
 import Scene.Settings as Settings exposing (Settings)
 
-
 import Types exposing (..)
-
-
 import Vector as V exposing (..)
+ 
+import Common
 
-type Command = Select (List Int) | Pan Position Position | Zoom Float Position | ZoomBrush Float | MakeEdit Edit
+
+type alias ObjId = Common.ObjId
+
+
+type Command = Select (List ObjId) | Pan Position Position | Zoom Float Position | ZoomBrush Float | MakeEdit Edit
 
 
 type alias Action =
@@ -42,7 +45,6 @@ type alias Scene =
   ,  settings    : Settings
   ,  action      : Active
   ,  doc         : Document
-  ,  nextId      : Int
-
-  , selection : List Int
+  ,  nextId      : ObjId
+  , selection : List ObjId
   }

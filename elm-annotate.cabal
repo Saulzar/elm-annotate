@@ -28,21 +28,27 @@ cabal-version:       >=1.10
 
 executable server
     main-is:             Server.hs
-    other-modules:       Types, Options
+    other-modules:       Types, Options, Document, AppState
     default-extensions:  DuplicateRecordFields, TemplateHaskell, FlexibleInstances, FlexibleContexts,
                          GADTs, MultiParamTypeClasses, TypeApplications, OverloadedStrings,
                          ScopedTypeVariables, LambdaCase, DeriveGeneric, DeriveDataTypeable,
-                         DataKinds, RankNTypes, OverloadedLabels
+                         DataKinds, RankNTypes, OverloadedLabels, TemplateHaskell, QuasiQuotes,
+                         TypeFamilies, GeneralizedNewtypeDeriving, StandaloneDeriving, TupleSections,
+                         RecordWildCards, TypeOperators, NoMonomorphismRestriction
     build-depends:       base >=4.9 && <4.10,
                          wai, wai-websockets, wai-app-static, text, bytestring, safe,
-                         warp, http-types, websockets, aeson, elm-bridge >= 0.4.1, mtl, containers,
-                         cmdargs, lens, generic-lens, generic-lens-labels, filepath, directory
+                         warp, http-types, websockets, aeson, elm-bridge >= 0.4.2, mtl, containers,
+                         cmdargs, lens, generic-lens, generic-lens-labels, filepath, directory,
+                         safecopy-migrate, safecopy, time, stm, stm-persist, servant-server
     hs-source-dirs:      server
     default-language:    Haskell2010
 
 executable generate-types
     main-is:             GenTypes.hs
-    default-extensions:  DuplicateRecordFields, TemplateHaskell, FlexibleInstances, MultiParamTypeClasses, TypeApplications, DeriveGeneric
-    build-depends:       base >=4.9 && <4.10, elm-bridge >= 0.4.1, containers
+    other-modules:       Types
+    default-extensions:  DuplicateRecordFields, TemplateHaskell, FlexibleInstances, MultiParamTypeClasses,
+                         TypeApplications, DeriveGeneric, TemplateHaskell, QuasiQuotes, TypeFamilies,
+                         GeneralizedNewtypeDeriving, StandaloneDeriving, GADTs
+    build-depends:       base >=4.9 && <4.10, elm-bridge >= 0.4.2, containers, time, generic-lens, generic-lens-labels
     hs-source-dirs:      server
     default-language:    Haskell2010

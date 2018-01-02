@@ -1,1 +1,1 @@
-./build.sh && `find ./dist-newstyle -type f -name server` trees --create
+./build.sh && `find ./dist-newstyle -type f -name server` /home/oliver/trees $@

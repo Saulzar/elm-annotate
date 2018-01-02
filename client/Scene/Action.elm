@@ -76,12 +76,12 @@ pan = rec <| \set pos -> {action
 
 type alias DragState = {origin : Position, pos : Position, scale : Float}
 
-dragObjects : Mouse.Button -> List Int -> Position -> Action
+dragObjects : Mouse.Button -> List ObjId -> Position -> Action
 dragObjects button selection pos = dragObjects_ button selection (DragState pos pos 1)
 
 
 
-dragObjects_ : Mouse.Button -> List Int -> DragState -> Action
+dragObjects_ : Mouse.Button -> List ObjId -> DragState -> Action
 dragObjects_ button selection = rec <| \set state ->
   let edits = MakeEdit (Transform selection state.scale (V.sub state.pos state.origin))
 

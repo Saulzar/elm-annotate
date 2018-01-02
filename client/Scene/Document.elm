@@ -1,5 +1,7 @@
 module Scene.Document exposing (..)
 
+import Tuple exposing (..)
+import Common exposing (..)
 import Vector as V exposing (..)
 import Types exposing (Document, Edit(..), Object(..))
 
@@ -7,8 +9,6 @@ import Types exposing (Document, Edit(..), Object(..))
 import Dict
 
 
-
-type alias Index = Int
 
 
 init : Document
@@ -18,41 +18,37 @@ init =
   , instances = Dict.empty
   }
 
-
-getObject : Document -> Index -> Object
+getObject : Document -> ObjId -> Object
 getObject doc i = case Dict.get i doc.instances of
   Just object -> object
   Nothing     -> Debug.crash ("getObject - missing index " ++ (toString i))
 
 
 
-
-
-
-add : Index -> Object -> Document -> Document
+add : ObjId -> Object -> Document -> Document
 add i obj doc = { doc | instances = Dict.insert i obj doc.instances }
 
-delete : Index -> Document -> Document
+delete : ObjId -> Document -> Document
 delete i doc = { doc | instances = Dict.remove i doc.instances }
 
 
-modify :  (Object -> Object) -> Index -> Document -> Document
+modify :  (Object -> Object) -> ObjId -> Document -> Document
 modify f i doc = { doc | instances = Dict.update i (Maybe.map f) doc.instances }
 
 
-maxIndex : Document -> Maybe Int
-maxIndex doc = List.maximum << List.filterMap List.maximum <|
-  [  (Dict.keys doc.instances)
-  ,  (List.filterMap editIndex doc.undos)
-  ,  (List.filterMap editIndex doc.redos)
+maxObject : Document -> Maybe Int
+maxObject doc = List.maximum << List.filterMap List.maximum <|
+  [  (List.map first <| Dict.keys doc.instances)
+  ,  (List.filterMap maxEdit doc.undos)
+  ,  (List.filterMap maxEdit doc.redos)
   ]
 
-editIndex : Edit -> Maybe Int
-editIndex e = case e of
-  Add i _ -> Just i
-  Delete i -> Just i
-  Transform ids _ _ -> List.maximum ids
-  Many edits -> List.maximum (List.filterMap editIndex edits)
+maxEdit : Edit -> Maybe Int
+maxEdit e = case e of
+  Add (i, _) _ -> Just i
+  Delete (i, _) -> Just i
+  Transform ids _ _ -> List.maximum <| List.map first ids
+  Many edits -> List.maximum (List.filterMap maxEdit edits)
 
 
 -- toExtents : { -> (Position, Vec2)

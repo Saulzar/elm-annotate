@@ -13,7 +13,8 @@ import Image exposing (Image)
 import Network
 
 import Scene.Types as Scene exposing (Scene, Action, Active(..), Command(..))
-import Types exposing (Dataset, ImageInfo, Response(..), Request (..), Edit(..))
+import Types exposing (Dataset, DocInfo, ServerMsg(..), ClientMsg (..), Edit(..))
+import Common exposing (DocName, ClientId, ObjId)
 
 import Input.Mouse as Mouse
 import Input.Element as Element
@@ -30,6 +31,8 @@ import Vector exposing (Position, Box)
 
 import Util exposing (..)
 import Tuple exposing (..)
+
+import Dict
 -- import Debug
 
 main : Program Never Model Msg
@@ -48,9 +51,8 @@ type alias Model =
     { dataset : Maybe Dataset
 
     , selectedFile : Maybe String
-    , location : Nav.Location
+    , hostname : String
 
-    , network : Network.State
 
     , input  : Input.State
     , scene  : Scene
@@ -77,21 +79,19 @@ type Msg
     | SetSort Int
     | Ignore
 
-
-
+type alias ImageInfo = (String, DocInfo)
 
 
 
 init : Nav.Location -> ( Model, Cmd Msg )
 init loc = let
-    (network, netCmd) = Network.init loc
 
+    hostname = Network.hostname loc
     model = { scene = Scene.empty
             , input = Input.init
-            , network = network
             , dataset = Nothing
             , selectedFile = Nothing
-            , location = loc
+            , hostname = hostname
 
             , sortMethod = 0
             , activeTab = Just "Images"
@@ -99,8 +99,7 @@ init loc = let
             , sortedImages = []
             }
     cmds  = Cmd.batch
-      [ Cmd.map Network netCmd
-      , Network.request network.host ReqDataset
+      [ Network.connect hostname
       , Element.askGeometry drawingId
       ]
 
@@ -110,28 +109,28 @@ init loc = let
 
 
 imagePath : Dataset -> String -> String
-imagePath dataset file = dataset.path ++ "/" ++ file
+imagePath dataset file = "images" ++ "/" ++ file
 
 
 modifyScene : (Scene -> Scene) -> Model -> Model
 modifyScene f model = {model | scene = f model.scene}
 
 
-handleResponse : Maybe Response -> Model -> (Model, Cmd Msg)
-handleResponse r model = case r of
-  (Just (RespDataset d)) -> let m = updateSort {model | dataset = Just d} in
-    case List.head d.images of
-      Nothing -> noCmd m
-      Just info -> selectImage (info.file) m
-
-  (Just (RespOpen file doc)) -> noCmd (modifyScene (Scene.loadDocument doc) model)
-  _ -> noCmd model
+-- handleResponse : Maybe Response -> Model -> (Model, Cmd Msg)
+-- handleResponse r model = case r of
+--   (Just (ServerLogin )) -> let m = updateSort {model | dataset = Just d} in
+--     case List.head d of
+--       Nothing -> noCmd m
+--       Just info -> selectImage (info.file) m
+--
+--   (Just (ServerOpen file doc)) -> noCmd (modifyScene (Scene.loadDocument doc) model)
+--   _ -> noCmd model
 
 
 selectImage : String -> Model -> (Model, Cmd Msg)
 selectImage file model = case model.dataset of
   Just dataset -> ({ model | selectedFile = Just file, scene = Scene.clear model.scene },
-    Cmd.batch [Image.loadImage (imagePath dataset file), Network.request model.network.host (ReqOpen file)] )
+    Cmd.batch [Image.loadImage (imagePath dataset file), Network.request  (ClientOpen file)] )
   Nothing -> noCmd model
 
 
@@ -143,12 +142,15 @@ getEdits msg = case msg of
   _   -> Nothing
 
 
-editRequest : Model -> Edit -> Cmd msg
-editRequest model e = Network.request model.network.host (ReqEdit e)
+editRequest : DocName -> Edit -> Cmd msg
+editRequest name e = Network.request (ClientEdit name e)
+
 
 requestEdits : Model -> Scene.Msg -> Cmd msg
 requestEdits model msg =  Maybe.withDefault Cmd.none <|
-  Maybe.map (editRequest model) (getEdits msg)
+  Maybe.map2 editRequest model.selectedFile (getEdits msg)
+
+
 
 sceneMsg : Scene.Msg -> Model -> (Model, Cmd Msg)
 sceneMsg msg model = (modifyScene (Scene.update msg) model, requestEdits model msg)
@@ -160,9 +162,7 @@ update msg model = case msg of
 
     ImageLoaded info -> noCmd { model | scene = Scene.setBackground info model.scene }
     UrlChange _ -> noCmd model
-    Network m ->
-      let (state, resp, cmd) = Network.update m model.network
-      in addCmd  (Cmd.map Network cmd) (handleResponse resp {model | network = state})
+    Network m -> noCmd model
 
     ViewSize box  -> noCmd (modifyScene (Scene.setBounds box) model)
     WindowResized -> (model, Element.askGeometry drawingId)
@@ -184,7 +184,7 @@ update msg model = case msg of
 subscriptions : Model -> Sub Msg
 subscriptions model = Sub.batch
     [ Image.imageLoaded ImageLoaded
-    , Network.subscriptions model.network Network
+    , Network.subscriptions Network
 
     , Input.subscriptions Input
     , Window.resizes  (always WindowResized)
@@ -335,7 +335,13 @@ makeSelect tagger current options = let
     in Html.map tagger <| select [class "custom-select"] (List.indexedMap opt options)
 
 datasetImages : Model -> List ImageInfo
-datasetImages model = (Maybe.withDefault [] (Maybe.map (.images) model.dataset))
+datasetImages model = (Maybe.withDefault [] (Maybe.map allImages model.dataset))
+
+
+allImages : Dataset -> List ImageInfo
+allImages dataset = Dict.toList dataset.images
+
+
 
 sortImages : Maybe String -> Int ->  List ImageInfo -> List ImageInfo
 sortImages search sortMethod images = images
@@ -359,9 +365,9 @@ imageBar model =
 
 imageSelector : Maybe String -> List ImageInfo ->  Html Msg
 imageSelector active images =
-  let selectRow info = tr [onClick (Select info.file), class (option (active == Just info.file) "table-active")]
-        [ td [] (if info.annotated then [FA.edit] else [])
-        , td [] [text info.file]
+  let selectRow (name, info) = tr [onClick (Select name), class (option (active == Just name) "table-active")]
+        [ td [] [text name]
+        --, td [] (if info.annotated then [FA.edit] else [])
         ]
 
       heading str = th [] [text str]

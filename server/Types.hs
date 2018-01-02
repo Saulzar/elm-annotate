@@ -1,4 +1,7 @@
-module Types where
+module Types (
+  module Types,
+  module Data.Generics.Labels
+) where
 
 
 import GHC.Generics
@@ -7,49 +10,67 @@ import Elm.Derive
 import qualified Data.Map as M
 import Data.Map (Map)
 
+import Data.Time.Clock
+
+import Data.Generics.Product
+import Data.Generics.Labels()
+
+type ObjId = (Int, Int)
+
+type ClientId = Int
+type DocName = String
+
+type DateTime = UTCTime
+
 
 data Vec2 = Vec2 {x :: Float, y :: Float} deriving (Generic, Show)
 data Edit
-  = Add Int  Object
-  | Delete Int
-  | Transform [Int] Float Vec2
+  = Add ObjId Object
+  | Delete ObjId
+  | Transform [ObjId] Float Vec2
   | Many [Edit]
 
   deriving (Generic, Show)
 
 data Box = Box { position :: Vec2, size :: Vec2 } deriving (Generic, Show)
-
 data Object = ObjPoint {position :: Vec2, radius :: Float} | ObjBox Box deriving (Generic, Show)
 
 data Document = Document
   { undos :: [Edit]
   , redos :: [Edit]
-
-  , instances :: Map Int Object
+  , instances :: Map ObjId Object
   } deriving (Generic, Show)
 
 
-data ImageInfo = ImageInfo {
-  file :: String,
-  annotated :: Bool
-} deriving (Generic, Show)
+data DocInfo = DocInfo
+  { modified :: Maybe DateTime
+  , included :: Bool
+  -- , imageSize :: (Int, Int)
+  } deriving (Generic, Show)
 
 
 data Config = Config
   { extensions :: [String]
   } deriving (Generic, Show)
 
-
 data Dataset = Dataset
-  { path :: String
-  , images :: [ImageInfo]
+  { images :: Map String DocInfo
   , config :: Config
   } deriving (Generic, Show)
 
 
-data Response = RespDataset Dataset  | RespOpen String Document | RespError String | RespPong Int deriving (Generic, Show)
-data Request = ReqDataset | ReqOpen String | ReqEdit Edit | ReqPing Int deriving (Generic, Show)
 
+data ServerMsg
+  = ServerLogin Int Dataset
+  | ServerDocument Document
+  | ServerOpen (Maybe String) Int DateTime
+  | ServerEdit String Edit
+      deriving (Generic, Show)
+
+data ClientMsg
+  = ClientOpen String
+  | ClientEdit String Edit
+      deriving (Generic, Show)
 
 
 deriveBoth defaultOptions ''Vec2
@@ -59,10 +80,9 @@ deriveBoth defaultOptions ''Edit
 deriveBoth defaultOptions ''Object
 deriveBoth defaultOptions ''Document
 
-deriveBoth defaultOptions ''ImageInfo
+deriveBoth defaultOptions ''DocInfo
 
-deriveBoth defaultOptions ''Request
-deriveBoth defaultOptions ''Response
+deriveBoth defaultOptions ''ServerMsg
+deriveBoth defaultOptions ''ClientMsg
 deriveBoth defaultOptions ''Config
-
 deriveBoth defaultOptions ''Dataset

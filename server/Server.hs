@@ -2,19 +2,24 @@ module Main where
 
 
 import Control.Monad
-import Control.Monad.Reader
+import Control.Monad.IO.Class
+
+import Control.Concurrent.STM
+import GHC.Conc
+
+import Control.Concurrent.Log
 
 import Data.List
 import Data.Maybe
+import Data.Foldable
 
 import Control.Exception
 import Data.Typeable
+import Data.Time.Clock
 
 import Control.Lens
 
 import GHC.Generics
-import Data.Generics.Product
-import Data.Generics.Labels()
 
 import System.FilePath
 import System.Directory
@@ -27,6 +32,9 @@ import Data.Char (toLower)
 
 import qualified Data.Map as M
 import Data.Map (Map)
+
+import qualified Data.Set as S
+import Data.Set (Set)
 
 import Data.Aeson hiding (Object)
 
@@ -45,47 +53,81 @@ import qualified Network.Wai.Handler.Warp       as Warp
 import qualified Network.Wai.Handler.WebSockets as WS
 import qualified Network.WebSockets             as WS
 
-import qualified Safe as Safe
-
 import qualified Types as T
-import Types
 
-type ClientId = Int
+import Types
+import AppState
+
+import Servant
+import Servant.Utils.StaticFiles
+
+data ClientAction = ClientClose | ClientSend ServerMsg deriving (Show, Generic)
 
 data Client  = Client
-  { connection :: WS.Connection
-  , document   :: Maybe (String, T.Document)
-  } deriving (Generic)
-
-data State    = State
-  { clients :: Map Int Client
-  , dataset :: Dataset
+  { connection :: TChan ClientAction
+  , document   :: Maybe String
   } deriving (Generic)
 
 
-type ClientM a = ReaderT (ClientId, MVar State) IO a
-data Error = ClientMissing ClientId | DocumentNotOpen | BadEdit String Edit  | DecodeError ByteString | RootDirectoryMissing String
+type Clients = TVar (Map Int Client)
+type Documents = TVar (Map DocName [ClientId])
+
+
+
+data Env    = Env
+  { clients     :: Clients
+  , documents   :: Documents
+  , state       :: Log AppState
+  , root        :: FilePath
+  } deriving (Generic)
+
+
+data Error = LogError String | RootDirectoryMissing FilePath | DecodeError ByteString
    deriving (Show, Typeable)
 
 instance Exception Error
 
-nextClient :: State -> ClientId
-nextClient state = fromMaybe 0 (fst . fst <$>  M.maxViewWithKey (clients state))
 
 
-connectClient :: WS.Connection -> MVar State -> IO ClientId
-connectClient conn stateRef = modifyMVar stateRef $ \state -> do
-  let clientId = nextClient state
-      client = Client conn Nothing
-  print ("Client connected", clientId)
-
-  return (state & field @"clients" %~ (M.insert clientId client), clientId)
+nextClient :: Map Int Client -> ClientId
+nextClient m = fromMaybe 0 (succ . fst . fst <$>  M.maxViewWithKey m)
 
 
-disconnectClient :: ClientId -> MVar State -> IO ()
-disconnectClient clientId stateRef = modifyMVar_ stateRef $ \state -> do
-  print ("Client disconnected", clientId)
-  return $ state & field @"clients" %~ M.delete clientId
+connectClient :: Env -> WS.Connection ->  IO ClientId
+connectClient env conn = do
+  (clientId, chan) <- atomically $ do
+    clientId <- nextClient <$> readTVar (env ^. #clients)
+    chan <- newTChan
+    modifyTVar (env ^. #clients) (M.insert clientId (Client chan Nothing))
+    return (clientId, chan)
+
+  clientId <$ forkIO (sendThread chan)
+
+  where
+    sendThread chan = do
+      action <- atomically $ readTChan chan
+      case action of
+        ClientClose   -> return ()
+        ClientSend msg -> liftIO $ WS.sendTextData conn (encode msg) >> sendThread chan
+
+
+withClient :: Clients -> ClientId -> (Client -> STM a) -> STM (Maybe a)
+withClient clients clientId  f = do
+  mClient <- M.lookup clientId <$> readTVar clients
+  traverse f mClient
+
+
+disconnectClient :: Env -> ClientId -> IO ()
+disconnectClient env clientId = atomically $ do
+  withClient (env ^. #clients) clientId $ \Client {..} -> do
+    writeTChan connection ClientClose
+
+    closeDocument env clientId
+    time <- unsafeIOToSTM getCurrentTime
+    broadcast env (ServerOpen Nothing clientId time)
+
+  modifyTVar (view #clients env) (M.delete clientId)
+
 
 
 tryDecode :: (MonadIO m, FromJSON a) => ByteString -> m a
@@ -94,207 +136,129 @@ tryDecode str = case decode str of
     Nothing -> liftIO (throw $ DecodeError str)
 
 
-readConfig :: FilePath -> IO Config
-readConfig path = do
-  r <- decode <$> BS.readFile (path </> "config.json")
-  case r of
-    Nothing -> error ("failed to decode config: " ++ path)
-    Just config -> return config
+
+-- flushDocument :: MonadIO m => AcidAppState Storage -> FilePath -> FilePath -> m ()
+-- flushDocument storage root filename = do
+--   (info, mDoc) <- query storage (GetDocument filename)
+--   forM_ mDoc $ \doc -> do
+--     liftIO $ BS.writeFile (root </> filename) (encode (info, doc))
+--
+
+at' :: (At m, Applicative f) =>
+     Index m -> (IxValue m -> f (IxValue m)) -> m -> f m
+at' i = at i . traverse
 
 
-validExtension :: [String] -> FilePath -> Bool
-validExtension exts filename = any (\e -> map toLower e == ext) exts where
-  ext = map toLower (takeExtension filename)
+
+respond :: MonadIO m => WS.Connection -> T.ServerMsg -> m ()
+respond conn msg = liftIO $ WS.sendTextData conn (encode msg)
 
 
 
-getInfo :: FilePath -> IO (Maybe ImageInfo)
-getInfo path = do
-  exists <- doesFileExist path
-  annotated <- doesFileExist (path ++ ".json")
-  return $ if exists
-    then Just (ImageInfo {file = takeFileName path, annotated = annotated})
-    else Nothing
+clientDoc :: ClientId -> Traversal' (Map ClientId Client) DocName
+clientDoc clientId = at' clientId . #document . traverse
 
 
-staticRoot :: String
-staticRoot = "html"
+closeDocument :: Env -> ClientId -> STM ()
+closeDocument (Env {..}) clientId  = (^? clientDoc clientId) <$> readTVar clients >>= traverse_ withDoc
+  where
+    withDoc docName = do
+        refs <- M.lookup docName <$> readTVar documents
+        modifyTVar documents (M.update removeClient docName)
 
+    removeClient cs = case (filter (/= clientId) cs) of
+        []  -> Nothing
+        cs' -> Just cs'
 
-findImages :: Config -> FilePath -> IO [ImageInfo]
-findImages config root = do
-  contents <- listDirectory root
-  let matching = filter (validExtension (config ^. field @"extensions")) contents
-  catMaybes <$> mapM (getInfo . (root </>)) matching
-
-readDataset :: FilePath -> IO Dataset
-readDataset root = do
-  config <- readConfig (staticRoot </> root)
-  files <- findImages config (staticRoot </> root)
-  return Dataset { path = root, images = files, config = config }
-
-
-getState :: ClientM State
-getState = do
-  (k, stateRef) <- ask
-  liftIO (readMVar stateRef)
-
-
-lookupClient :: State -> ClientId -> Maybe Client
-lookupClient state clientId = M.lookup clientId (state ^. field @"clients")
+        --   (#documents . at' doc ^?) <$> readCurrent state >>= traverse_ (\doc -> do
+        --     writeTChan docWriter (DocFlush docName doc))
 
 
 
 
 
-getClient :: ClientM Client
-getClient = do
-  (clientId, stateRef) <- ask
-  state <- liftIO (readMVar stateRef)
-  case lookupClient state clientId of
-    Nothing -> liftIO (throw $ ClientMissing clientId)
-    Just client -> return client
+openDocument :: Env -> ClientId -> DocName -> STM ()
+openDocument env@(Env {..}) clientId docName = do
+  closeDocument env clientId
+
+  modifyTVar clients (at' clientId . #document .~ Just docName)
+  modifyTVar documents ( M.alter addClient docName)
+
+  time <- unsafeIOToSTM getCurrentTime
+
+  updateLog state (CmdModified docName time)
+  broadcast env (ServerOpen (Just docName) clientId time)
+
+    where
+      addClient = \case
+        Just cs -> Just (clientId:cs)
+        Nothing -> Just [clientId]
 
 
+makeEdit :: Env -> DocName -> Edit -> STM ()
+makeEdit env@(Env {..}) docName edit = do
+  updateLog state (CmdEdit docName edit)
 
-filePath :: State -> FilePath -> FilePath
-filePath state file = staticRoot </> (state ^. field @"dataset" . field @"path") </> file
+  clients <- getEditing <$> readTVar documents
+  for_ clients $ \clientId ->
+    sendClient env clientId (ServerEdit docName edit)
 
-
-defaultDocument ::  Document
-defaultDocument = Document
-  { undos = []
-  , redos = []
-  , instances = M.empty
-  }
-
-
-loadDocument :: State -> FilePath -> IO (Maybe Document)
-loadDocument state file = do
-  exists <- doesFileExist path
-  if exists
-    then  decode <$> BS.readFile path
-    else return Nothing
-
-  where path = filePath state file
-
-openDocument :: FilePath -> ClientM Document
-openDocument file = do
-  (clientId, stateRef) <- ask
-  doc <- liftIO $ modifyMVar stateRef $ \state -> do
-    doc <- fromMaybe defaultDocument <$> loadDocument state file
-    return (state & _document clientId .~ Just (file, doc), doc )
-
-  return doc
+  where
+    getEditing = fromMaybe [] . M.lookup docName
 
 
-flushDocument :: ClientM ()
-flushDocument = do
-  state <- getState
-  mDoc <- view (field @"document") <$> getClient
-
-  forM_ mDoc $ \(file, doc) -> do
-    liftIO $ print (filePath state file)
-    liftIO $ BS.writeFile (filePath state file)  (encode doc)
-
-
-_document :: ClientId -> Traversal' State (Maybe (FilePath, Document))
-_document clientId = field @"clients" . at clientId . traverse . field @"document"
-
-
-modifyDocument :: (Document -> Either String Document) -> ClientM (Maybe String)
-modifyDocument f = do
-  (clientId, stateRef) <- ask
-  liftIO $ modifyMVar stateRef $ \state -> return $
-    case (firstOf (_document clientId . traverse) state) of
-      Nothing     -> (state, Just "document not open")
-      (Just doc)  -> case f (snd doc) of
-          Left err  -> (state, Just err)
-          Right doc' -> (state & (_document clientId . traverse . _2) .~ doc', Nothing)
-
-
-
-runEdit :: Edit -> Document -> Either String Document
-runEdit edit doc = do
-  (inverse, doc') <- applyEdit edit doc
-
-  return $ doc & field @"undos" %~ (inverse:)
-
-
-
-accumEdits :: Edit -> ([Edit], Document) -> Either String ([Edit], Document)
-accumEdits edit (inverses, doc) = do
-  (inv, doc') <- applyEdit edit doc
-  return (inv : inverses, doc')
-
-
-transformObj :: Float -> Vec2 -> Object -> Object
-transformObj = undefined
-
-instance Num Vec2 where
-  negate (Vec2 x y) = Vec2 (-x) (-y)
-
-applyEdit :: Edit -> Document -> Either String (Edit, Document)
-applyEdit edit doc =  case edit of
-  Add k object -> return (Delete k, doc & #instances %~ M.insert k object)
-  Delete k     -> case (M.lookup k (doc ^. #instances)) of
-    Nothing     -> Left ("delete - key not found: " ++ show k)
-    Just object -> return (Add k object, doc & #instances %~ M.delete k)
-  Transform ks s v -> return
-    ( Transform ks (1/s) (negate v)
-    , foldr (\k -> over (#instances . at k . traverse) (transformObj s v)) doc ks)
-
-  Many edits -> over _1 Many <$> foldM (flip accumEdits) ([], doc) edits
-
-
-getConnection :: ClientM WS.Connection
-getConnection = view (field @"connection") <$> getClient
-
-getDataset :: ClientM Dataset
-getDataset = view (field @"dataset") <$> getState
-
-
-respond :: Response -> ClientM ()
-respond response = do
-  liftIO $ print response
-
-  conn <- getConnection
-  liftIO $ WS.sendTextData conn (encode response)
-
-
-
-request :: ClientM Request
-request = do
-  conn <- getConnection
-  tryDecode =<< liftIO (WS.receiveData conn)
-
-client ::   ClientM ()
-client = forever $ do
-  req <- request
+recieveLoop :: Env -> WS.Connection -> ClientId -> IO ()
+recieveLoop env conn clientId = forever $ do
+  req <- tryDecode =<< liftIO (WS.receiveData conn)
   liftIO $ print req
   case req of
-      ReqPing n -> respond (RespPong n)
-      ReqDataset -> respond =<< RespDataset <$> getDataset
-      ReqOpen file -> do
-        doc <- openDocument (file ++ ".json")
-        respond (RespOpen file doc)
-
-      ReqEdit e -> do
-        maybeErr <- modifyDocument (runEdit e)
-        forM_ maybeErr $ \err -> liftIO (throw (BadEdit err e))
-
-        flushDocument
-      -- _ -> return ()
+      ClientOpen file -> atomically $ openDocument env clientId file
 
 
-wsApp :: MVar State -> WS.ServerApp
-wsApp stateRef pendingConn = do
-  conn <- WS.acceptRequest pendingConn
-  clientId <- connectClient conn stateRef
+
+sendClient :: Env -> ClientId -> T.ServerMsg -> STM ()
+sendClient env clientId msg = void $ do
+  withClient (env ^. #clients) clientId $ \Client {..} ->
+    writeTChan connection (ClientSend msg)
+
+
+
+broadcast :: Env -> T.ServerMsg -> STM ()
+broadcast env msg = do
+  clients <- readTVar (env ^. #clients)
+  for_ clients $ \Client {..} ->
+    writeTChan connection (ClientSend msg)
+
+websocketServer :: Env -> WS.ServerApp
+websocketServer env pending = do
+  conn <- WS.acceptRequest pending
+
+  clientId <- connectClient env conn
+
   WS.forkPingThread conn 30
   Exception.finally
-    (runReaderT client (clientId, stateRef))
-    (disconnectClient clientId stateRef)
+    (recieveLoop env conn clientId)
+    (disconnectClient env clientId)
+
+
+
+type Api =
+  "ws" :> Raw
+  :<|> "images" :> Raw
+  :<|> Raw
+
+
+server :: Env -> Server Api
+server env =
+  withDefault (websocketServer env)
+  :<|> serveDirectoryWebApp (env ^. #root)
+  :<|> serveDirectoryWebApp "html"
+
+
+withDefault :: WS.ServerApp -> Server Raw
+withDefault ws = Tagged $ WS.websocketsOr WS.defaultConnectionOptions ws backupApp
+  where backupApp _ respond = respond $ Wai.responseLBS Http.status400 [] "Not a WebSocket request"
+
 
 
 defaultConfig :: Config
@@ -302,35 +266,40 @@ defaultConfig = Config
   { extensions = [".png", ".jpg", ".jpeg"]
   }
 
-initConfig :: String -> IO ()
-initConfig root = do
-    exists <- doesFileExist configFile
-    when (not exists) $ do
-      BS.writeFile configFile (encode defaultConfig)
-
-    where
-      configFile = staticRoot </> root </> "config.json"
 
 
+validExtension :: [String] -> FilePath -> Bool
+validExtension exts filename = any (\e -> map toLower e == ext) exts where
+  ext = map toLower (takeExtension filename)
 
+
+findImages :: Config -> FilePath -> IO [FilePath]
+findImages config root = do
+  contents <- listDirectory root
+  return $ filter (validExtension (config ^. #extensions)) contents
 
 main :: IO ()
 main = do
-  opts <- Opt.getArgs
+  Opt.Options {..} <- Opt.getArgs
 
-  let root = Opt.root opts
+  exists <- doesDirectoryExist root
+  unless exists $ throw (RootDirectoryMissing root)
 
-  exists <- doesDirectoryExist (staticRoot </> root)
-  when (not exists) $ throw (RootDirectoryMissing root)
-  when (Opt.create opts) $ initConfig root
+  let initial = initialState defaultConfig
+      logFile = root </> "annotations.db"
 
-  dataset <- readDataset root
+  state <- if discard
+    then freshLog initial logFile
+    else openLog initial logFile >>= either (throw . LogError) return
 
-  state <- newMVar $ State M.empty dataset
-  Warp.run 3000 $ WS.websocketsOr
-    WS.defaultConnectionOptions
-    (wsApp state)
-    httpApp
+  clients <- atomically (newTVar M.empty)
+  documents <- atomically (newTVar M.empty)
 
-httpApp :: Wai.Application
-httpApp = Static.staticApp (Static.defaultWebAppSettings staticRoot)
+  atomically $ do
+    config <- view #config <$> readCurrent state
+    images <- unsafeIOToSTM (findImages config root)
+    updateImages images state
+
+
+
+  Warp.run 3000 $ serve (Proxy @ Api) (server $ Env {..})

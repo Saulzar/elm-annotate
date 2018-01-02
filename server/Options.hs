@@ -6,14 +6,14 @@ default (Int, Float)
 
 data Options = Options
   { root :: String
-  , create :: Bool
+  , discard :: Bool
   } deriving (Data, Typeable, Show)
 
 
 options :: Options
 options =
-  Options { root        = def   &= argPos 0
-          , create      = False &= help "Initialise with default config file"
+  Options { root        = def  &= argPos 0
+          , discard     = def  &= help "discard data and start fresh"
           } &= summary "Annotation server"
 
 

@@ -9,7 +9,7 @@ import Elm.TyRender
 import Elm.Json
 import Elm.Versions
 
-
+import Debug.Trace
 
 alterations :: ETypeDef -> ETypeDef
 alterations = recAlterType $ \t -> case t of
@@ -17,9 +17,14 @@ alterations = recAlterType $ \t -> case t of
   _ -> t
   where
     tc = ETyCon . ETCon
-    isComparable (ETyCon (ETCon n)) = n `elem` ["String", "Int"]
-    checkMap k v | isComparable k = ETyApp (ETyApp (tc "Dict") k) v
-                 | otherwise  = ETyApp (tc "List") (ETyApp (ETyApp (ETyTuple 2) k) v)
+    -- isComparable (ETyCon (ETCon n)) = n `elem` ["String", "Int"]
+    -- isComparable (ETyApp (ETyApp (ETyTuple 2) k1) k2) = isComparable k1 && isComparable k2
+    -- isComparable _ = False
+
+    checkMap k v = ETyApp (ETyApp (tc "Dict") k) v
+                 -- | otherwise  = ETyApp (tc "List") (ETyApp (ETyApp (ETyTuple 2) k) v)
+
+
 
 makeModule' :: String  -- ^ Module name
                          -> [DefineElm]  -- ^ List of definitions to be included in the module
@@ -33,7 +38,7 @@ makeModule' moduleName defs = unlines $
     , "import Json.Helpers exposing (..)"
     , "import Dict exposing (Dict)"
     , "import Set exposing (Set)"
-    , ""
+    , "import Common exposing (..)"
     , ""
     ] ++ [makeModuleContentWithAlterations (defaultAlterations . alterations) defs]
 
@@ -45,10 +50,10 @@ elmModule = makeModule' "Types"
   , DefineElm (Proxy @ Object)
   , DefineElm (Proxy @ Document)
 
-  , DefineElm (Proxy @ Request)
-  , DefineElm (Proxy @ Response)
+  , DefineElm (Proxy @ ClientMsg)
+  , DefineElm (Proxy @ ServerMsg)
 
-  , DefineElm (Proxy @ ImageInfo)
+  , DefineElm (Proxy @ DocInfo)
   , DefineElm (Proxy @ Config )
 
   , DefineElm (Proxy @ Dataset)
