@@ -54,22 +54,22 @@ data Config = Config
   } deriving (Generic, Show)
 
 data Dataset = Dataset
-  { images :: Map String DocInfo
-  , config :: Config
+  { config :: Config
+  , images :: Map DocName DocInfo
   } deriving (Generic, Show)
 
 
 
 data ServerMsg
-  = ServerLogin Int Dataset
+  = ServerHello ClientId Dataset
   | ServerDocument Document
-  | ServerOpen (Maybe String) Int DateTime
+  | ServerOpen (Maybe DocName) Int DateTime
   | ServerEdit String Edit
       deriving (Generic, Show)
 
 data ClientMsg
-  = ClientOpen String
-  | ClientEdit String Edit
+  = ClientOpen DocName
+  | ClientEdit DocName Edit
       deriving (Generic, Show)
 
 

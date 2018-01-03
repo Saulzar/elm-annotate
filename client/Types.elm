@@ -120,38 +120,38 @@ jsonEncDocument  val =
 
 
 type ClientMsg  =
-    ClientOpen String
-    | ClientEdit String Edit
+    ClientOpen DocName
+    | ClientEdit DocName Edit
 
 jsonDecClientMsg : Json.Decode.Decoder ( ClientMsg )
 jsonDecClientMsg =
     let jsonDecDictClientMsg = Dict.fromList
-            [ ("ClientOpen", Json.Decode.lazy (\_ -> Json.Decode.map ClientOpen (Json.Decode.string)))
-            , ("ClientEdit", Json.Decode.lazy (\_ -> Json.Decode.map2 ClientEdit (Json.Decode.index 0 (Json.Decode.string)) (Json.Decode.index 1 (jsonDecEdit))))
+            [ ("ClientOpen", Json.Decode.lazy (\_ -> Json.Decode.map ClientOpen (jsonDecDocName)))
+            , ("ClientEdit", Json.Decode.lazy (\_ -> Json.Decode.map2 ClientEdit (Json.Decode.index 0 (jsonDecDocName)) (Json.Decode.index 1 (jsonDecEdit))))
             ]
     in  decodeSumObjectWithSingleField  "ClientMsg" jsonDecDictClientMsg
 
 jsonEncClientMsg : ClientMsg -> Value
 jsonEncClientMsg  val =
     let keyval v = case v of
-                    ClientOpen v1 -> ("ClientOpen", encodeValue (Json.Encode.string v1))
-                    ClientEdit v1 v2 -> ("ClientEdit", encodeValue (Json.Encode.list [Json.Encode.string v1, jsonEncEdit v2]))
+                    ClientOpen v1 -> ("ClientOpen", encodeValue (jsonEncDocName v1))
+                    ClientEdit v1 v2 -> ("ClientEdit", encodeValue (Json.Encode.list [jsonEncDocName v1, jsonEncEdit v2]))
     in encodeSumObjectWithSingleField keyval val
 
 
 
 type ServerMsg  =
-    ServerLogin Int Dataset
+    ServerHello ClientId Dataset
     | ServerDocument Document
-    | ServerOpen (Maybe String) Int DateTime
+    | ServerOpen (Maybe DocName) Int DateTime
     | ServerEdit String Edit
 
 jsonDecServerMsg : Json.Decode.Decoder ( ServerMsg )
 jsonDecServerMsg =
     let jsonDecDictServerMsg = Dict.fromList
-            [ ("ServerLogin", Json.Decode.lazy (\_ -> Json.Decode.map2 ServerLogin (Json.Decode.index 0 (Json.Decode.int)) (Json.Decode.index 1 (jsonDecDataset))))
+            [ ("ServerHello", Json.Decode.lazy (\_ -> Json.Decode.map2 ServerHello (Json.Decode.index 0 (jsonDecClientId)) (Json.Decode.index 1 (jsonDecDataset))))
             , ("ServerDocument", Json.Decode.lazy (\_ -> Json.Decode.map ServerDocument (jsonDecDocument)))
-            , ("ServerOpen", Json.Decode.lazy (\_ -> Json.Decode.map3 ServerOpen (Json.Decode.index 0 (Json.Decode.maybe (Json.Decode.string))) (Json.Decode.index 1 (Json.Decode.int)) (Json.Decode.index 2 (jsonDecDateTime))))
+            , ("ServerOpen", Json.Decode.lazy (\_ -> Json.Decode.map3 ServerOpen (Json.Decode.index 0 (Json.Decode.maybe (jsonDecDocName))) (Json.Decode.index 1 (Json.Decode.int)) (Json.Decode.index 2 (jsonDecDateTime))))
             , ("ServerEdit", Json.Decode.lazy (\_ -> Json.Decode.map2 ServerEdit (Json.Decode.index 0 (Json.Decode.string)) (Json.Decode.index 1 (jsonDecEdit))))
             ]
     in  decodeSumObjectWithSingleField  "ServerMsg" jsonDecDictServerMsg
@@ -159,9 +159,9 @@ jsonDecServerMsg =
 jsonEncServerMsg : ServerMsg -> Value
 jsonEncServerMsg  val =
     let keyval v = case v of
-                    ServerLogin v1 v2 -> ("ServerLogin", encodeValue (Json.Encode.list [Json.Encode.int v1, jsonEncDataset v2]))
+                    ServerHello v1 v2 -> ("ServerHello", encodeValue (Json.Encode.list [jsonEncClientId v1, jsonEncDataset v2]))
                     ServerDocument v1 -> ("ServerDocument", encodeValue (jsonEncDocument v1))
-                    ServerOpen v1 v2 v3 -> ("ServerOpen", encodeValue (Json.Encode.list [(maybeEncode (Json.Encode.string)) v1, Json.Encode.int v2, jsonEncDateTime v3]))
+                    ServerOpen v1 v2 v3 -> ("ServerOpen", encodeValue (Json.Encode.list [(maybeEncode (jsonEncDocName)) v1, Json.Encode.int v2, jsonEncDateTime v3]))
                     ServerEdit v1 v2 -> ("ServerEdit", encodeValue (Json.Encode.list [Json.Encode.string v1, jsonEncEdit v2]))
     in encodeSumObjectWithSingleField keyval val
 
@@ -205,21 +205,21 @@ jsonEncConfig  val =
 
 
 type alias Dataset  =
-   { images: (Dict String DocInfo)
-   , config: Config
+   { config: Config
+   , images: (Dict DocName DocInfo)
    }
 
 jsonDecDataset : Json.Decode.Decoder ( Dataset )
 jsonDecDataset =
-   ("images" := Json.Decode.dict (jsonDecDocInfo)) >>= \pimages ->
    ("config" := jsonDecConfig) >>= \pconfig ->
-   Json.Decode.succeed {images = pimages, config = pconfig}
+   ("images" := decodeMap (jsonDecDocName) (jsonDecDocInfo)) >>= \pimages ->
+   Json.Decode.succeed {config = pconfig, images = pimages}
 
 jsonEncDataset : Dataset -> Value
 jsonEncDataset  val =
    Json.Encode.object
-   [ ("images", (encodeMap (Json.Encode.string) (jsonEncDocInfo)) val.images)
-   , ("config", jsonEncConfig val.config)
+   [ ("config", jsonEncConfig val.config)
+   , ("images", (encodeMap (jsonEncDocName) (jsonEncDocInfo)) val.images)
    ]
 
 

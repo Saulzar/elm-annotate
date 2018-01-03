@@ -79,6 +79,9 @@ updateImages images db = do
   updateLog db (CmdImages new)
 
 
+getDataset :: AppState -> Dataset
+getDataset AppState {..} = Dataset {..}
+
 --
 
 --

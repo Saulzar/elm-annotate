@@ -95,11 +95,37 @@ function subscribe(app) {
 
 
 		app.ports.loadImage.subscribe(function(imageFile) {
-
-				const img = document.createElement( "img" )
-				img.onload = () => app.ports.imageLoaded.send( {src : img.src, size : {x : img.width, y : img.height}} )
-				img.src = imageFile
+      const img = document.createElement( "img" )
+      img.onload = () => app.ports.imageLoaded.send( {src : img.src, size : {x : img.width, y : img.height}} )
+      img.src = imageFile
     });
+
+
+    var socket;
+
+    app.ports.connect.subscribe(function(host) {
+      socket = new WebSocket(host);
+
+      socket.onclose = function() {
+        app.ports.onClose.send ()
+      }
+
+      socket.onconnect = function() {
+        app.ports.onConnect.send ()
+      }
+
+      socket.onerror = function(e) {
+        app.ports.onError.send (e.reason)
+      }
+
+      socket.onmessage = function(e) {
+        app.ports.onMessage.send (e.data)
+      }
+
+
+    });
+
+
 
 
 }

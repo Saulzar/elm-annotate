@@ -34,7 +34,7 @@ type Msg = Error String | Connected | Disconnected | FromServer ServerMsg
 
 
 hostname : Location -> String
-hostname loc = "ws://" ++ loc.hostname ++ "/ws:3000"
+hostname loc = "ws://" ++ loc.hostname ++ ":3000/ws"
 
 
 port onConnect  : (Value -> msg) -> Sub msg

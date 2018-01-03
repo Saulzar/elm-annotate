@@ -23,7 +23,7 @@ import GHC.Generics
 
 import System.FilePath
 import System.Directory
-
+import System.IO
 import System.Environment (getArgs)
 
 import Options as Opt
@@ -72,6 +72,7 @@ data Client  = Client
 type Clients = TVar (Map Int Client)
 type Documents = TVar (Map DocName [ClientId])
 
+type LogMsg = String
 
 
 data Env    = Env
@@ -79,6 +80,7 @@ data Env    = Env
   , documents   :: Documents
   , state       :: Log AppState
   , root        :: FilePath
+  , logChan     :: TChan LogMsg
   } deriving (Generic)
 
 
@@ -93,12 +95,20 @@ nextClient :: Map Int Client -> ClientId
 nextClient m = fromMaybe 0 (succ . fst . fst <$>  M.maxViewWithKey m)
 
 
+sendHello :: Env -> ClientId -> STM ()
+sendHello env clientId = do
+  ds <- getDataset <$> readCurrent (env ^. #state)
+  sendClient env clientId (ServerHello clientId ds)
+
+
+
 connectClient :: Env -> WS.Connection ->  IO ClientId
 connectClient env conn = do
   (clientId, chan) <- atomically $ do
     clientId <- nextClient <$> readTVar (env ^. #clients)
     chan <- newTChan
     modifyTVar (env ^. #clients) (M.insert clientId (Client chan Nothing))
+    writeLog env $ "client connected: " ++ show clientId
     return (clientId, chan)
 
   clientId <$ forkIO (sendThread chan)
@@ -127,6 +137,7 @@ disconnectClient env clientId = atomically $ do
     broadcast env (ServerOpen Nothing clientId time)
 
   modifyTVar (view #clients env) (M.delete clientId)
+  writeLog env $ "disconnected: " ++ show clientId
 
 
 
@@ -278,9 +289,23 @@ findImages config root = do
   contents <- listDirectory root
   return $ filter (validExtension (config ^. #extensions)) contents
 
+writeLog :: Env -> LogMsg -> STM ()
+writeLog env msg = writeTChan (env ^. #logChan) msg
+
+startLogger :: Handle -> IO (TChan LogMsg)
+startLogger handle = do
+  logChan   <- atomically newTChan
+
+  forkIO $ forever $ do
+    msg <- atomically $ readTChan logChan
+    hPutStrLn handle msg
+
+  return logChan
+
 main :: IO ()
 main = do
   Opt.Options {..} <- Opt.getArgs
+  logChan <- startLogger stdout
 
   exists <- doesDirectoryExist root
   unless exists $ throw (RootDirectoryMissing root)
@@ -292,14 +317,14 @@ main = do
     then freshLog initial logFile
     else openLog initial logFile >>= either (throw . LogError) return
 
-  clients <- atomically (newTVar M.empty)
+  clients   <- atomically (newTVar M.empty)
   documents <- atomically (newTVar M.empty)
+
 
   atomically $ do
     config <- view #config <$> readCurrent state
     images <- unsafeIOToSTM (findImages config root)
     updateImages images state
-
 
 
   Warp.run 3000 $ serve (Proxy @ Api) (server $ Env {..})

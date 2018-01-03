@@ -16,10 +16,24 @@ type alias ClientId = Int
 type alias DateTime = DateTime.DateTime
 
 
-jsonDecObjId : Decoder (Int, Int)
+jsonEncClientId : ClientId -> Value
+jsonEncClientId = Encode.int
+
+jsonDecClientId : Decoder ClientId
+jsonDecClientId = Decode.int
+
+
+jsonEncDocName : DocName -> Value
+jsonEncDocName = Encode.string
+
+jsonDecDocName : Decoder DocName
+jsonDecDocName = Decode.string
+
+
+jsonDecObjId : Decoder ObjId
 jsonDecObjId = Decode.map2 (,) (Decode.index 0 Decode.int) (Decode.index 1 Decode.int)
 
-jsonEncObjId : (Int, Int) -> Value
+jsonEncObjId : ObjId -> Value
 jsonEncObjId (a, b) = Encode.list [Encode.int a, Encode.int b]
 
 
