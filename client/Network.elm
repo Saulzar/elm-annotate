@@ -4,17 +4,7 @@ port module Network exposing (..)
 import Json.Decode as Dec
 import Json.Encode as Enc
 
-import WebSocket as WS
-import Debug
-
 import Types exposing (..)
-
-import Process
-import Task
-import Time exposing (Time)
-
-import Navigation as Nav exposing (Location)
-
 import Json.Decode as Json exposing (Value)
 
 --
@@ -25,36 +15,42 @@ import Json.Decode as Json exposing (Value)
 --       Err err -> Debug.log ("Decode response: " ++ err) (f <| Error err)
 
 
-delay :  msg -> Time.Time -> Cmd msg
-delay msg time = Process.sleep time |> Task.perform (always msg)
 
 
 
-type Msg = Error String | Connected | Disconnected | FromServer ServerMsg
+
+type Msg = Error String | Open | Close | Message ServerMsg | Retry
 
 
-hostname : Location -> String
-hostname loc = "ws://" ++ loc.hostname ++ ":3000/ws"
+websocketHost : String -> String
+websocketHost host = "ws://" ++ host ++ ":3000/ws"
 
 
-port onConnect  : (Value -> msg) -> Sub msg
-port onDisconnect  : (Value -> msg) -> Sub msg
-port onError : (String -> msg) -> Sub msg
+port onOpen  : (Value -> msg) -> Sub msg
+port onClose  : (Value -> msg) -> Sub msg
+-- port onError : (String -> msg) -> Sub msg
 
-port onResponse : (String -> msg) -> Sub msg
+port onMessage : (String -> msg) -> Sub msg
 
 
-request : ClientMsg -> Cmd msg
-request msg =  send_ (Enc.encode 0 (jsonEncClientMsg msg))
+sendMsg : ClientMsg -> Cmd msg
+sendMsg msg =  send_ (Enc.encode 0 (jsonEncClientMsg msg))
 
 
 port send_ : String -> Cmd msg
 port connect  : String -> Cmd msg
 
 
+decodeMsg : String -> Msg
+decodeMsg str =  case Json.decodeString jsonDecServerMsg str of
+  Err e   -> Error ("decode error: " ++ e)
+  Ok msg  -> Message msg
+
 
 subscriptions : (Msg -> msg) -> Sub msg
 subscriptions f = Sub.map f <| Sub.batch
-  [ onConnect (always Connected)
-  , onDisconnect (always Disconnected)
+  [ onOpen (always Open)
+  , onClose (always Close)
+  --, onError Error
+  , onMessage decodeMsg
   ]

@@ -21,8 +21,7 @@ import Scene.Document as Doc
 import Scene.Action as Action
 
 import Types exposing (..)
-
-import Tuple exposing (..)
+import Common exposing (..)
 
 import Input
 import Input.Mouse as Mouse
@@ -35,28 +34,38 @@ import Dict
 
 
 
-empty : Scene
-empty =
-  { background = Nothing
-  , view = View.init
-  , settings = Settings.init
-  , action = Inactive
+load : ClientId -> Document -> Image -> Scene -> Scene
+load clientId doc img scene =
+  let nextObj = 1 + Maybe.withDefault 0 (Doc.maxObject doc)
 
+  in { scene | background = Just img
+    , action      = Inactive
+
+    , doc         = doc
+    , nextId      = (nextObj, clientId)
+    , selection   = []
+    }
+
+
+init : Scene
+init =
+  { settings = Settings.init
+  , view     = View.init
+  , action      = Inactive
+
+  , background = Nothing
   , doc = Doc.init
   , nextId = (0, 0)
-
   , selection = []
   }
 
-
-clear : Scene -> Scene
-clear scene = {scene | background = Nothing, doc = Doc.init}
 
 modifyView : (Geometry -> Geometry) -> Scene -> Scene
 modifyView f scene = {scene | view = f scene.view}
 
 modifySettings : (Settings -> Settings) -> Scene -> Scene
 modifySettings f scene  = {scene | settings = f scene.settings}
+
 
 
 modifyDoc : (Document -> Document) -> Scene -> Scene
@@ -66,26 +75,15 @@ incId : Scene -> Scene
 incId scene = let incId (object, client) = (object + 1, client) in
   {scene | nextId = incId scene.nextId}
 
-
-
-loadDocument : Document -> Scene -> Scene
-loadDocument doc scene = { scene
-  | doc = doc
-  , nextId = (1 + Maybe.withDefault 0 (Doc.maxObject doc), second scene.nextId)
-  }
-
-setBackground : Image -> Scene -> Scene
-setBackground image scene = {scene | background = Just image, view = View.setSize image.size scene.view}
-
-
+applyEdit : Edit -> Scene -> Scene
+applyEdit e = modifyDoc (Doc.applyEdit e) >> incId
 
 runCommand : Command -> Scene -> Scene
 runCommand cmd = case cmd of
     Pan pos mouse  -> modifyView (View.pan pos mouse)
     Zoom zoom pos  -> modifyView (View.zoomTo zoom pos)
     ZoomBrush zoom -> modifySettings (Settings.zoomBrush zoom)
-    MakeEdit e -> modifyDoc (Doc.applyEdit e) >> incId
-
+    MakeEdit e -> applyEdit e
     Select ids -> \scene -> {scene | selection = ids}
 
 
@@ -97,16 +95,18 @@ toMsg mCmd = case mCmd of
   Nothing  -> []
   Just cmd -> [Run cmd]
 
-interact : (Input.Event, Input.State) -> Scene -> List Msg
-interact input scene = case scene.action of
-  Inactive      -> []
-  Active action -> case action.update input scene of
-    Continue update cmd -> toMsg cmd ++ case update of
-        Nothing     -> []
-        Just action -> [Update action]
 
-    End cmd   -> Cancel :: toMsg cmd
-    Ignored   -> []
+
+interact : (Input.Event, Input.State) -> Scene -> List Msg
+interact (e, input) scene = case scene.action of
+    Inactive      -> []
+    Active action -> case action.update e input scene of
+      Continue update cmd -> toMsg cmd ++ case update of
+          Nothing     -> []
+          Just action -> [Update action]
+
+      End cmd   -> Cancel :: toMsg cmd
+      Ignored   -> []
 
 
 setBounds : Box -> Scene -> Scene
@@ -127,24 +127,23 @@ maybeAction scene = case scene.action of
   Active action -> Just action
 
 
+getPending : Scene -> List Edit
+getPending scene = maybeAction scene |> Maybe.map (.pending) |> Maybe.withDefault []
+
 
 view : (Msgs -> msg) -> Input.State -> Scene -> Html msg
-view f input scene =
-  let scene_ = case scene.action of
-    Inactive -> scene
-    Active action -> List.foldr runCommand scene action.pending
+view f input scene = Html.map f (view_ input <| List.foldr applyEdit scene (getPending scene))
 
-  in Html.map f (view_ input scene_)
+svgImage : Image -> Svg msg
+svgImage i = image [xlinkHref i.src, x (px 0), y (px 0), width (px i.size.x), height (px i.size.y) ] []
 
 view_ : Input.State -> Scene -> Html Msgs
 view_ input scene = View.view scene.view
-  [ maybeSvg scene.background
-      (\i -> image [xlinkHref i.src, x (px 0), y (px 0), width (px i.size.x), height (px i.size.y) ] [])
-
-  , g [] (List.map (viewObject input scene) (Dict.toList scene.doc.instances))
-  , maybeSvg (maybeAction scene)
-      (\action -> Svg.map (always []) <| action.view scene)
-  ]
+    [ maybeSvg scene.background svgImage
+    , g [] (List.map (viewObject scene input) (Dict.toList scene.doc.instances))
+    , maybeSvg (maybeAction scene)
+        (\action -> Svg.map (always []) <| action.view scene)
+    ]
 
 
 
@@ -166,7 +165,7 @@ rect p1 p2 =
   in Svg.rect [class ["object"], x (px p1.x), y (px p1.y), width (px size.x), height (px size.y)] []
 
 
-isSelected : Scene -> ObjId -> Bool
+isSelected : {a | selection : List ObjId } -> ObjId -> Bool
 isSelected scene id = List.member id scene.selection
 
 
@@ -176,8 +175,8 @@ select ids = Run (Select ids)
 edit : Edit -> Msg
 edit = Run << MakeEdit
 
-viewObject : Input.State -> Scene -> (ObjId, Object) -> Svg Msgs
-viewObject input scene (id, obj) =
+viewObject : Scene -> Input.State -> (ObjId, Object) -> Svg Msgs
+viewObject scene  input (id, obj) =
   let selected = isSelected scene id
       render = case obj of
         ObjPoint p ->  circle p.position p.radius
@@ -194,7 +193,8 @@ zoomCentre scene amount = Zoom amount (V.centre scene.view.bounds)
 
 
 cancelAction : Scene -> Scene
-cancelAction scene = { scene | action = Inactive }
+cancelAction ed = { ed | action = Inactive }
+
 
 
 update : Msg -> Scene -> Scene

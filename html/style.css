@@ -81,18 +81,20 @@ html, body {
 }
 
 
-
-
 .zoom {
   right : 5px;
   bottom: 5px;
 }
 
+.indicator {
+  top: 5px;
+  right: 5px;
+}
 
 .tabs {
   top : 5px;
   left: 5px;
-}
+} 
 
 .tabs .buttons {
   display: inline-block;

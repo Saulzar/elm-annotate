@@ -5,16 +5,16 @@ import Html.Lazy as Html
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 
-import Navigation as Nav
-
 import FontAwesome.Web as FA
 
 import Image exposing (Image)
 import Network
 
 import Scene.Types as Scene exposing (Scene, Action, Active(..), Command(..))
-import Types exposing (Dataset, DocInfo, ServerMsg(..), ClientMsg (..), Edit(..))
+import Types exposing (Dataset, DocInfo, ServerMsg(..), ClientMsg (..), Edit(..), Document)
 import Common exposing (DocName, ClientId, ObjId)
+
+import Time exposing (Time)
 
 import Input.Mouse as Mouse
 import Input.Element as Element
@@ -27,17 +27,17 @@ import Input
 import Scene
 
 import Json.Decode as Json
-import Vector exposing (Position, Box)
+import Vector exposing (Position, Box, Size)
 
 import Util exposing (..)
 import Tuple exposing (..)
 
 import Dict
--- import Debug
+import Debug
 
-main : Program Never Model Msg
+main : Program Flags Model Msg
 main =
-    Nav.program UrlChange
+    Html.programWithFlags
         { view = view
         , update = update
         , subscriptions = subscriptions
@@ -47,27 +47,17 @@ main =
 
 -- You need to keep track of the view state for the navbar in your model
 
-type alias Model =
-    { dataset : Maybe Dataset
+type alias ReadyInfo  = { clientId : ClientId }
+type NetworkState = Disconnected Int Int | Connected | Ready ReadyInfo
 
-    , selectedFile : Maybe String
-    , hostname : String
-
-
-    , input  : Input.State
-    , scene  : Scene
-
-    , activeTab : Maybe String
-    , sortMethod : Int
-
-    , sortedImages : List ImageInfo
+type alias Loading =
+    { image  : Maybe Image
+    , doc    : Maybe Document
     }
-
 
 type Msg
     = Select String
-    | ImageLoaded Image
-    | UrlChange Nav.Location
+    | ImageLoaded (DocName, Image)
     | Network Network.Msg
     | Scene (List Scene.Msg)
 
@@ -79,33 +69,62 @@ type Msg
     | SetSort Int
     | Ignore
 
+
+
 type alias ImageInfo = (String, DocInfo)
 
+type alias Model =
+    { network    : NetworkState
+    , hostname : String
+
+    , dataset  : Dataset
+    , scene   : Scene
+    , loading : Loading
+
+    , input  : Input.State
+
+    -- User interface
+    , selectedFile : Maybe String
+    , activeTab  : Maybe String
+    , sortMethod : Int
+
+    }
+
+type alias Flags = { hostname : String }
+
+initLoading : Loading
+initLoading = Loading Nothing Nothing
+
+emptyDataset : Dataset
+emptyDataset =
+  { config = {extensions = []}
+  , images = Dict.empty
+  }
 
 
-init : Nav.Location -> ( Model, Cmd Msg )
-init loc = let
+init : Flags -> ( Model, Cmd Msg )
+init flags = let
 
-    hostname = Network.hostname loc
-    model = { scene = Scene.empty
+    hostname = Network.websocketHost flags.hostname
+    model = { network = Disconnected 0 0
+            , hostname = flags.hostname
+
+            , scene = Scene.init
+            , loading = initLoading
             , input = Input.init
-            , dataset = Nothing
-            , selectedFile = Nothing
-            , hostname = hostname
 
+            , selectedFile = Nothing
             , sortMethod = 0
             , activeTab = Just "Images"
-
-            , sortedImages = []
+            , dataset = emptyDataset
             }
-    cmds  = Cmd.batch
+
+    cmds  =
       [ Network.connect hostname
       , Element.askGeometry drawingId
       ]
 
-  in  (model, cmds)
-
-
+  in  model ! cmds
 
 
 imagePath : Dataset -> String -> String
@@ -115,57 +134,81 @@ imagePath dataset file = "images" ++ "/" ++ file
 modifyScene : (Scene -> Scene) -> Model -> Model
 modifyScene f model = {model | scene = f model.scene}
 
+handleMessage : ServerMsg -> Model -> (Model, Cmd Msg)
+handleMessage msg model = case msg of
+  ServerHello clientId dataset -> noCmd {model | network = Ready {clientId = clientId}, dataset = dataset}
+  _ -> Debug.crash "handleMessage: not implemented"
 
--- handleResponse : Maybe Response -> Model -> (Model, Cmd Msg)
--- handleResponse r model = case r of
---   (Just (ServerLogin )) -> let m = updateSort {model | dataset = Just d} in
---     case List.head d of
---       Nothing -> noCmd m
---       Just info -> selectImage (info.file) m
---
---   (Just (ServerOpen file doc)) -> noCmd (modifyScene (Scene.loadDocument doc) model)
---   _ -> noCmd model
+
+handleNetwork : Network.Msg -> Model -> (Model, Cmd Msg)
+handleNetwork r model = case r of
+  Network.Open            -> noCmd { model | network = Connected }
+  Network.Message msg     -> handleMessage msg model
+  Network.Close           -> case model.network of
+    Disconnected retries _ -> connectIn (retries + 1) (Basics.min 16 (2 ^ retries)) model
+    _ -> { model | network = Disconnected 0 0 } ! [Network.connect model.hostname]
+
+  Network.Retry -> case model.network of
+    Disconnected retries time -> connectIn retries (time - 1) model
+    _                         -> noCmd model
+
+  Network.Error e -> Debug.crash e
+
+connectIn : Int -> Int -> Model -> (Model, Cmd Msg)
+connectIn retries time model =
+  let cmd = if time > 0
+        then delay Network.Retry (1 * Time.second)
+        else Network.connect model.hostname
+  in { model | network = Disconnected retries time }  ! [Cmd.map Network cmd]
+
+getClientId : NetworkState -> Maybe ClientId
+getClientId ns = case ns of
+  Ready i -> Just i.clientId
+  _ -> Nothing
+
+
+
+whenReady : Model -> (ReadyInfo -> Cmd msg) -> Cmd msg
+whenReady model f = case model.network of
+  Ready r -> f r
+  _ -> Cmd.none
 
 
 selectImage : String -> Model -> (Model, Cmd Msg)
-selectImage file model = case model.dataset of
-  Just dataset -> ({ model | selectedFile = Just file, scene = Scene.clear model.scene },
-    Cmd.batch [Image.loadImage (imagePath dataset file), Network.request  (ClientOpen file)] )
-  Nothing -> noCmd model
-
-
-
-
-getEdits : Scene.Msg -> Maybe Edit
-getEdits msg = case msg of
-  (Scene.Run (MakeEdit e)) -> Just e
-  _   -> Nothing
+selectImage file model =
+    let model1 = { model | loading = initLoading  }
+        url = "images/" ++ file
+        cmd = whenReady model1 <| \_ -> Cmd.batch [Image.loadImage (file, url),  Network.sendMsg (ClientOpen file)]
+    in (model1, cmd)
 
 
 editRequest : DocName -> Edit -> Cmd msg
-editRequest name e = Network.request (ClientEdit name e)
-
-
-requestEdits : Model -> Scene.Msg -> Cmd msg
-requestEdits model msg =  Maybe.withDefault Cmd.none <|
-  Maybe.map2 editRequest model.selectedFile (getEdits msg)
-
+editRequest name e = Network.sendMsg (ClientEdit name e)
 
 
 sceneMsg : Scene.Msg -> Model -> (Model, Cmd Msg)
-sceneMsg msg model = (modifyScene (Scene.update msg) model, requestEdits model msg)
+sceneMsg msg model = case msg of
+  Scene.Run (MakeEdit e) -> Debug.crash "fixme"
+  _ -> noCmd (modifyScene (Scene.update msg) model)
 
+
+updateLoading : Model -> (Loading -> Loading) -> Model
+updateLoading model f =
+  let loading  = f model.loading
+  in case Maybe.map3 Scene.load (getClientId model.network) loading.doc loading.image of
+    Nothing   -> {model | loading = loading}
+    Just f   -> {model | scene = f model.scene, loading = initLoading}
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model = case msg of
     Select file -> selectImage file model
 
-    ImageLoaded info -> noCmd { model | scene = Scene.setBackground info model.scene }
-    UrlChange _ -> noCmd model
-    Network m -> noCmd model
+    Network m -> handleNetwork m model
 
     ViewSize box  -> noCmd (modifyScene (Scene.setBounds box) model)
     WindowResized -> (model, Element.askGeometry drawingId)
+    ImageLoaded (name, info) -> noCmd <| updateLoading model <| \loading ->
+      if Just name == model.selectedFile then { loading | image = Just info} else loading
 
     Scene msgs -> foldUpdate sceneMsg model msgs
     Input event ->
@@ -173,9 +216,8 @@ update msg model = case msg of
           msgs = globalInput (event, input) model.scene
       in foldUpdate sceneMsg {model | input = input}  msgs
 
-
     ShowTab option -> noCmd {model | activeTab = option}
-    SetSort method -> noCmd <| updateSort {model | sortMethod = method}
+    SetSort method -> noCmd {model | sortMethod = method}
     Ignore -> noCmd model
 
 
@@ -300,10 +342,18 @@ tabButtons active options =
 
   in nav [class "nav nav-pills bg-light rounded"] (List.map tab options)
 
-
 div_ : String -> List (Html msg) -> Html msg
 div_ name = div [class name]
 
+
+indicator : NetworkState -> Html Msg
+indicator state = div_ "indicator" <| case state of
+  Disconnected n time -> [ul [class "list-unstyled"]
+    [ li [] [ text "Disconnected ", span [class "text-danger"] [FA.warning]]
+    -- , li [] [ text ("Reconnecting.. " ++ toString time)]
+    ]]
+  Connected           -> [text "Loading ", span [class "text-info"] [FA.refresh]]
+  Ready _ -> [text "Ready ", span [class "text-success"] [FA.check]]
 
 
 
@@ -317,11 +367,13 @@ interface model =
           , makeButton (zoom 25) [FA.minus]
           ]
 
+
+
         scene = div (events model) [Scene.view Scene model.input model.scene]
 
         tabs = makeTabs model.activeTab [("Images", imageBar model), ("Options", optionsBar model)]
 
-    in [scene, zoomButtons] ++ tabs
+    in [scene, zoomButtons, indicator (model.network)] ++ tabs
 
 
 optionsBar : Model -> Html Msg
@@ -334,27 +386,17 @@ makeSelect tagger current options = let
 
     in Html.map tagger <| select [class "custom-select"] (List.indexedMap opt options)
 
-datasetImages : Model -> List ImageInfo
-datasetImages model = (Maybe.withDefault [] (Maybe.map allImages model.dataset))
 
+getImages : Model -> List ImageInfo
+getImages model = Dict.toList model.dataset.images
 
-allImages : Dataset -> List ImageInfo
-allImages dataset = Dict.toList dataset.images
-
-
-
-sortImages : Maybe String -> Int ->  List ImageInfo -> List ImageInfo
-sortImages search sortMethod images = images
-
-updateSort : Model -> Model
-updateSort model = {model | sortedImages = datasetImages model}
 
 imageBar : Model -> Html Msg
 imageBar model =
   let item name inner = div_ "form-group" [label [] [text name, inner]]
 
       sortMethod = item "Sort by " (makeSelect SetSort (model.sortMethod) ["Name", "Annotated", "Non annotated"])
-      imageSelect = Html.lazy2 imageSelector model.selectedFile model.sortedImages
+      imageSelect = Html.lazy2 imageSelector model.selectedFile (getImages model)
 
   in div [class "card expand imagebar"]
         [div_ "card-body d-flex flex-column"

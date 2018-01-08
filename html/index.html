@@ -16,7 +16,9 @@
   </body>
 
   <script type="text/javascript">
-    app = Elm.Main.fullscreen();
+    flags = {hostname : window.location.hostname};
+
+    app = Elm.Main.fullscreen(flags);
     subscribe(app);
   </script>
 

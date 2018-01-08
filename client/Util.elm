@@ -5,6 +5,10 @@ import Json.Decode exposing (..)
 
 import List.Extra as List
 
+import Process
+import Task
+import Time
+
 assertResult : Result String a -> a
 assertResult r = case r of
      Ok x        -> x
@@ -23,6 +27,9 @@ applyMaybe f ma = case ma of
   Nothing -> identity
   Just a  -> f a
 
+
+delay :  msg -> Time.Time -> Cmd msg
+delay msg time = Process.sleep time |> Task.perform (always msg)
 
 
 insertAt : Int -> a -> List a -> List a

@@ -38,7 +38,7 @@ data Object = ObjPoint {position :: Vec2, radius :: Float} | ObjBox Box deriving
 data Document = Document
   { undos :: [Edit]
   , redos :: [Edit]
-  , instances :: Map ObjId Object
+  , instances :: Map (Int, Int) Object
   } deriving (Generic, Show)
 
 
@@ -55,7 +55,7 @@ data Config = Config
 
 data Dataset = Dataset
   { config :: Config
-  , images :: Map DocName DocInfo
+  , images :: Map String DocInfo
   } deriving (Generic, Show)
 
 

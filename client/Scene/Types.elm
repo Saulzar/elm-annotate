@@ -11,21 +11,19 @@ import Scene.Settings as Settings exposing (Settings)
 
 import Types exposing (..)
 import Vector as V exposing (..)
- 
-import Common
 
+import Common exposing (ObjId)
 
-type alias ObjId = Common.ObjId
 
 
 type Command = Select (List ObjId) | Pan Position Position | Zoom Float Position | ZoomBrush Float | MakeEdit Edit
 
 
 type alias Action =
-  { update : (Input.Event, Input.State) -> Scene -> Update
+  { update : Input.Event -> Input.State -> Scene -> Update
   , view   : Scene -> Svg ()
   , cursor : String
-  , pending : List Command
+  , pending : List Edit
   }
 
 type Update = Continue (Maybe Action) (Maybe Command) | Ignored | End (Maybe Command)
@@ -34,17 +32,16 @@ type Active = Inactive | Active Action   -- Maybe synonym to break recursive typ
 
 
 
-
-
 type Msg = Start Action | Update Action | Run Command | Cancel | Ignore
 type alias Msgs = List Msg
 
+
 type alias Scene =
-  {  background  : Maybe Image
-  ,  view        : View.Geometry
-  ,  settings    : Settings
-  ,  action      : Active
-  ,  doc         : Document
-  ,  nextId      : ObjId
+  { doc       : Document
+  , nextId    : ObjId
   , selection : List ObjId
+  , action    : Active
+  , settings  : Settings
+  , view      : Geometry
+  , background : Maybe Image
   }

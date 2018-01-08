@@ -99,14 +99,14 @@ jsonEncObject  val =
 type alias Document  =
    { undos: (List Edit)
    , redos: (List Edit)
-   , instances: (Dict ObjId Object)
+   , instances: (Dict (Int, Int) Object)
    }
 
 jsonDecDocument : Json.Decode.Decoder ( Document )
 jsonDecDocument =
    ("undos" := Json.Decode.list (jsonDecEdit)) >>= \pundos ->
    ("redos" := Json.Decode.list (jsonDecEdit)) >>= \predos ->
-   ("instances" := decodeMap (jsonDecObjId) (jsonDecObject)) >>= \pinstances ->
+   ("instances" := decodeMap (Json.Decode.map2 (,) (Json.Decode.index 0 (Json.Decode.int)) (Json.Decode.index 1 (Json.Decode.int))) (jsonDecObject)) >>= \pinstances ->
    Json.Decode.succeed {undos = pundos, redos = predos, instances = pinstances}
 
 jsonEncDocument : Document -> Value
@@ -114,7 +114,7 @@ jsonEncDocument  val =
    Json.Encode.object
    [ ("undos", (Json.Encode.list << List.map jsonEncEdit) val.undos)
    , ("redos", (Json.Encode.list << List.map jsonEncEdit) val.redos)
-   , ("instances", (encodeMap (jsonEncObjId) (jsonEncObject)) val.instances)
+   , ("instances", (encodeMap ((\(v1,v2) -> Json.Encode.list [(Json.Encode.int) v1,(Json.Encode.int) v2])) (jsonEncObject)) val.instances)
    ]
 
 
@@ -206,20 +206,20 @@ jsonEncConfig  val =
 
 type alias Dataset  =
    { config: Config
-   , images: (Dict DocName DocInfo)
+   , images: (Dict String DocInfo)
    }
 
 jsonDecDataset : Json.Decode.Decoder ( Dataset )
 jsonDecDataset =
    ("config" := jsonDecConfig) >>= \pconfig ->
-   ("images" := decodeMap (jsonDecDocName) (jsonDecDocInfo)) >>= \pimages ->
+   ("images" := Json.Decode.dict (jsonDecDocInfo)) >>= \pimages ->
    Json.Decode.succeed {config = pconfig, images = pimages}
 
 jsonEncDataset : Dataset -> Value
 jsonEncDataset  val =
    Json.Encode.object
    [ ("config", jsonEncConfig val.config)
-   , ("images", (encodeMap (jsonEncDocName) (jsonEncDocInfo)) val.images)
+   , ("images", (encodeMap (Json.Encode.string) (jsonEncDocInfo)) val.images)
    ]
 
 

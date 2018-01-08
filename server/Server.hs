@@ -219,11 +219,13 @@ makeEdit env@(Env {..}) docName edit = do
 
 
 recieveLoop :: Env -> WS.Connection -> ClientId -> IO ()
-recieveLoop env conn clientId = forever $ do
-  req <- tryDecode =<< liftIO (WS.receiveData conn)
-  liftIO $ print req
-  case req of
-      ClientOpen file -> atomically $ openDocument env clientId file
+recieveLoop env conn clientId = do
+  atomically $ sendHello env clientId
+  forever $ do
+    req <- tryDecode =<< liftIO (WS.receiveData conn)
+    liftIO $ print req
+    case req of
+        ClientOpen file -> atomically $ openDocument env clientId file
 
 
 

@@ -12,7 +12,7 @@ import Input exposing (Event(..))
 import Scene.View as View
 -- import Scene.Document as Doc
 import Types exposing (..)
-
+import Common exposing (..)
 
 import Vector as V exposing (Size, Position, Vec2, Box)
 
@@ -26,7 +26,7 @@ import Keyboard.Key exposing (Key)
 
 action : Action
 action =
-  { update = \_ _ -> end
+  { update = \e input scene -> end
   , cursor = "default"
   , view = always (g [] [])
 
@@ -59,7 +59,7 @@ createObject scene = MakeEdit << (Add scene.nextId)
 
 pan :  Position -> Action
 pan = rec <| \set pos -> {action
-  | update = \(e, _) scene -> case e of
+  | update = \e _ scene -> case e of
       MouseMove mouse ->
         command (Pan pos mouse)
 
@@ -83,18 +83,18 @@ dragObjects button selection pos = dragObjects_ button selection (DragState pos 
 
 dragObjects_ : Mouse.Button -> List ObjId -> DragState -> Action
 dragObjects_ button selection = rec <| \set state ->
-  let edits = MakeEdit (Transform selection state.scale (V.sub state.pos state.origin))
+  let edits = Transform selection state.scale (V.sub state.pos state.origin)
 
 
   in { action
-    | update = \(e, _) scene -> case e of
+    | update = \e _ scene -> case e of
         MouseMove mouse ->
           update <| set {state | pos = View.toLocal scene.view mouse}
 
         MouseWheel deltas ->
           update <| set {state | scale = state.scale * Mouse.zoomBy deltas }
 
-        MouseUp b -> when (b == button) (End (Just edits))
+        MouseUp b -> when (b == button) (End (Just (MakeEdit edits)))
         _           -> Ignored
   , cursor = "move"
   , pending = [edits]
@@ -108,7 +108,7 @@ circle pos radius = Svg.circle [class ["brush"], cx (px pos.x), cy (px pos.y), r
 
 drawPoints : Key -> Position -> Action
 drawPoints key = rec <| \set pos -> {action
-    | update = \(e, _) scene -> case e of
+    | update = \e _ scene -> case e of
         MouseMove mouse ->
           update (set (View.toLocal scene.view mouse))
 

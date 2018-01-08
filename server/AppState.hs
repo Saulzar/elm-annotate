@@ -16,6 +16,7 @@ import Control.Lens
 import Control.Concurrent.STM
 
 import GHC.Generics
+import Data.Generics.Product.Subtype
 import Data.Time.Clock
 
 import Control.Concurrent.Log
@@ -80,7 +81,7 @@ updateImages images db = do
 
 
 getDataset :: AppState -> Dataset
-getDataset AppState {..} = Dataset {..}
+getDataset = upcast
 
 --
 
