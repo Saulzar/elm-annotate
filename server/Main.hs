@@ -274,10 +274,6 @@ withDefault ws = Tagged $ WS.websocketsOr WS.defaultConnectionOptions ws backupA
 
 
 
-defaultConfig :: Config
-defaultConfig = Config
-  { extensions = [".png", ".jpg", ".jpeg"]
-  }
 
 
 
@@ -286,10 +282,31 @@ validExtension exts filename = any (\e -> map toLower e == ext) exts where
   ext = map toLower (takeExtension filename)
 
 
-findImages :: Config -> FilePath -> IO [FilePath]
+findImages :: Config -> FilePath -> IO [DocName]
 findImages config root = do
   contents <- listDirectory root
   return $ filter (validExtension (config ^. #extensions)) contents
+
+
+imageInfo :: FilePath -> IO (Maybe DocInfo)
+imageInfo filename = do
+  readImageWithMetadata filename >>= \case
+    Left _              -> Nothing
+    Right (_, metadata) ->
+      docInfo <$> (lookup Width metadata) <*> (lookup Height metadata)
+
+    where
+      docInfo width height =
+        DocInfo Nothing False (width, height)
+
+
+findNewImages :: Config -> FilePath -> Map DocName DocInfo -> IO [(DocName, DocInfo)]
+findNewImages config root existing = do
+  images <- findImages config root
+  catMaybes <$> forM (filter (M.notMember existing) images) $ \image ->
+    (image, ) <$> imageInfo image
+
+
 
 writeLog :: Env -> LogMsg -> STM ()
 writeLog env msg = writeTChan (env ^. #logChan) msg
@@ -325,7 +342,9 @@ main = do
 
   atomically $ do
     config <- view #config <$> readCurrent state
-    images <- unsafeIOToSTM (findImages config root)
+
+    existing <- getImages state
+    images <- unsafeIOToSTM (findNewImages config root existing)
     updateImages images state
 
 

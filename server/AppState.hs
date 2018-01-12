@@ -21,6 +21,7 @@ import Data.Time.Clock
 
 import Control.Concurrent.Log
 
+import Codec.Picture
 
 data AppState = AppState
   { config :: Config
@@ -72,9 +73,13 @@ initialState config = AppState
   }
 
 
+getImages :: Log AppState -> STM (Map DocName DocInfo)
+getImages db = view #images <$> readCurrent db
+
+
 updateImages :: [FilePath] -> Log AppState -> STM ()
 updateImages images db = do
-  existing <- view #images <$> readCurrent db
+  existing <- getImages db 
   let new = filter (not . flip M.member existing) images
 
   updateLog db (CmdImages new)
