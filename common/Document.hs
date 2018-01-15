@@ -26,11 +26,11 @@ empty = Document
 --     (inv, doc') = applyEdit edit doc
 --
 --
--- transformObj :: Float -> Vec2 -> Object -> Object
+-- transformObj :: Float -> V2 -> Object -> Object
 -- transformObj = undefined
 --
--- instance Num Vec2 where
---   negate (Vec2 x y) = Vec2 (-x) (-y)
+-- instance Num V2 where
+--   negate (V2 x y) = V2 (-x) (-y)
 --
 -- applyEdit :: Edit -> Document -> (Edit, Document)
 -- applyEdit edit doc =  case edit of

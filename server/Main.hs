@@ -28,7 +28,8 @@ import System.Environment (getArgs)
 
 import Options as Opt
 
-import Data.Char (toLower)
+import Data.Char (toLower, isSpace)
+import Data.Void (Void)
 
 import qualified Data.Map as M
 import Data.Map (Map)
@@ -43,6 +44,16 @@ import Data.ByteString.Lazy (ByteString)
 
 import Control.Concurrent
 import qualified Control.Exception              as Exception
+-- import Codec.Picture as Codec
+-- import Codec.Picture.Metadata as Codec
+
+import System.Process (readProcessWithExitCode)
+import System.Exit (ExitCode(..))
+
+import Text.Megaparsec
+import Text.Megaparsec.Char
+import Text.Megaparsec.Char.Lexer (decimal)
+import Control.Monad.Combinators
 
 import qualified Network.HTTP.Types             as Http
 import qualified Network.Wai                    as Wai
@@ -288,23 +299,69 @@ findImages config root = do
   return $ filter (validExtension (config ^. #extensions)) contents
 
 
+-- imageInfo :: FilePath -> IO (Maybe DocInfo)
+-- imageInfo filename = do
+--   info <- docInfo <$> Codec.readImageWithMetadata filename
+--   info <$ print (filename, info)
+--   where
+--     docInfo (Left _)              = Nothing
+--     docInfo (Right (_, metadata)) = toInfo <$>
+--       (Codec.lookup Width metadata) <*> (Codec.lookup Height metadata)
+--
+--     toInfo w h = DocInfo Nothing False (fromIntegral w, fromIntegral h)
+
+-- /home/oliver/trees/_DSC2028.JPG JPEG 1600x1064 1600x1064+0+0 8-bit sRGB 958KB 0.000u 0:00.000
+
+defaultInfo :: Dim -> DocInfo
+defaultInfo dim = DocInfo
+  { modified = Nothing
+  , included = False
+  , imageSize = dim
+  }
+
+type Parser = Parsec Void String
+
+parseIdentify :: Parser (FilePath, String, Dim)
+parseIdentify = do
+  filename <- parseFilename
+  space
+  code <- fileCode
+  space
+  dim <- parseDim
+  many anyChar
+  return (filename, code, dim)
+
+
+parseFilename :: Parser String
+parseFilename = takeWhile1P Nothing (not . isSpace) <?> "word"
+
+fileCode :: Parser String
+fileCode = some letterChar <?> "file code"
+
+parseDim :: Parser Dim
+parseDim = do
+  w <- decimal
+  char 'x'
+  h <- decimal
+  return (w, h)
+
+
 imageInfo :: FilePath -> IO (Maybe DocInfo)
 imageInfo filename = do
-  readImageWithMetadata filename >>= \case
-    Left _              -> Nothing
-    Right (_, metadata) ->
-      docInfo <$> (lookup Width metadata) <*> (lookup Height metadata)
+  (exit, out, _) <- readProcessWithExitCode "identify" [filename] ""
+  return $ case exit of
+    ExitSuccess -> toInfo <$> parseMaybe parseIdentify out
+    _           -> Nothing
 
     where
-      docInfo width height =
-        DocInfo Nothing False (width, height)
-
+      toInfo (_, _, dim) = defaultInfo dim
 
 findNewImages :: Config -> FilePath -> Map DocName DocInfo -> IO [(DocName, DocInfo)]
 findNewImages config root existing = do
   images <- findImages config root
-  catMaybes <$> forM (filter (M.notMember existing) images) $ \image ->
-    (image, ) <$> imageInfo image
+
+  catMaybes <$> (forM (filter (flip M.notMember existing) images) $ \image -> do
+    fmap (image, ) <$> imageInfo (root </> image))
 
 
 
@@ -345,7 +402,9 @@ main = do
 
     existing <- getImages state
     images <- unsafeIOToSTM (findNewImages config root existing)
-    updateImages images state
+    updateLog state (CmdImages images)
+
+  print =<< atomically (readCurrent state)
 
 
   Warp.run 3000 $ serve (Proxy @ Api) (server $ Env {..})

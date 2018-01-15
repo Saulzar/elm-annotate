@@ -1,6 +1,9 @@
 module Types (
   module Types,
-  module Data.Generics.Labels
+  module Geometry,
+
+  module Data.Generics.Labels,
+  Generic(..),
 ) where
 
 
@@ -16,6 +19,9 @@ import Data.Time.Clock
 import Data.Generics.Product
 import Data.Generics.Labels()
 
+import Geometry
+
+
 type ObjId = (Int, Int)
 
 type ClientId = Int
@@ -26,17 +32,16 @@ type DateTime = UTCTime
 type Dim = (Int, Int)
 
 
-data Vec2 = Vec2 {x :: Float, y :: Float} deriving (Generic, Show, Eq)
 data Edit
   = Add ObjId Object
   | Delete ObjId
-  | Transform [ObjId] Float Vec2
+  | Transform [ObjId] Float (V2 Float)
   | Many [Edit]
 
   deriving (Generic, Show, Eq)
 
-data Box = Box { position :: Vec2, size :: Vec2 } deriving (Generic, Show, Eq)
-data Object = ObjPoint {position :: Vec2, radius :: Float} | ObjBox Box deriving (Generic, Show, Eq)
+
+data Object = ObjPoint {position :: (V2 Float), radius :: (V2 Float)} | ObjBox Box deriving (Generic, Show, Eq)
 
 data Document = Document
   { undos :: [Edit]
@@ -75,9 +80,9 @@ data ClientMsg
   | ClientEdit DocName Edit
       deriving (Generic, Show, Eq)
 
-instance FromJSON Vec2
+
+
 instance FromJSON Edit
-instance FromJSON Box
 instance FromJSON Object
 instance FromJSON Document
 instance FromJSON Config
@@ -87,9 +92,7 @@ instance FromJSON ServerMsg
 instance FromJSON ClientMsg
 
 
-instance ToJSON Vec2
 instance ToJSON Edit
-instance ToJSON Box
 instance ToJSON Object
 instance ToJSON Document
 instance ToJSON Config

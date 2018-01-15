@@ -19,9 +19,9 @@ import GHC.Generics
 import Data.Generics.Product.Subtype
 import Data.Time.Clock
 
-import Control.Concurrent.Log
+import Linear.Affine
 
-import Codec.Picture
+import Control.Concurrent.Log
 
 data AppState = AppState
   { config :: Config
@@ -33,11 +33,14 @@ data AppState = AppState
 data Command where
   CmdEdit :: DocName -> Edit -> Command
   CmdModified :: DocName -> UTCTime -> Command
-  CmdImages :: [DocName] -> Command
+  CmdImages :: [(DocName, DocInfo)] -> Command
 
 
-$(deriveSafeCopy 0 'base ''Vec2)
+$(deriveSafeCopy 0 'base ''V2)
 $(deriveSafeCopy 0 'base ''Box)
+$(deriveSafeCopy 0 'base ''Extents)
+
+
 $(deriveSafeCopy 0 'base ''Object)
 $(deriveSafeCopy 0 'base ''Edit)
 $(deriveSafeCopy 0 'base ''Document)
@@ -57,12 +60,7 @@ instance Persistable AppState where
 
   update (CmdEdit doc edit) = undefined
   update (CmdModified doc time) =  docInfo doc . #modified .~ Just time
-
-
-  update (CmdImages new) = over #images (M.union new')
-    where
-      new' = M.fromList $ (, emptyInfo) <$> new
-      emptyInfo = DocInfo Nothing False
+  update (CmdImages new) = over #images (M.union (M.fromList new))
 
 
 initialState :: Config -> AppState
@@ -76,13 +74,6 @@ initialState config = AppState
 getImages :: Log AppState -> STM (Map DocName DocInfo)
 getImages db = view #images <$> readCurrent db
 
-
-updateImages :: [FilePath] -> Log AppState -> STM ()
-updateImages images db = do
-  existing <- getImages db 
-  let new = filter (not . flip M.member existing) images
-
-  updateLog db (CmdImages new)
 
 
 getDataset :: AppState -> Dataset

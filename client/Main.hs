@@ -14,17 +14,22 @@ import           Miso
 import           Miso.String  (MisoString)
 import qualified Miso.String  as S
 
+import Scene
+
 import Data.Maybe
 import Network.URI
 import Types
+
+import qualified Input as Input
 
 import Control.Lens
 
 
 data Action
   = HandleWebSocket (WebSocket ServerMsg)
-  | Select DocName
+  | SelectDoc DocName
   | ShowTab (Maybe MisoString)
+  | Input (Input.Event)
   -- | SendMessage ServerMsg
   -- | UpdateMessage MisoString
   | Id
@@ -38,6 +43,8 @@ data Model = Model
   , selected :: Maybe DocName
   , activeTab :: Maybe MisoString
 
+  , input :: Input.State
+
   } deriving (Show, Generic, Eq)
 
 
@@ -49,6 +56,8 @@ initialModel =  Model
   , network = Disconnected
   , selected = Nothing
   , activeTab = Nothing
+
+  , input = Input.initial
   }
 
 main :: IO ()
@@ -61,7 +70,7 @@ start host = startApp App { initialAction = Id, ..} where
   model   = initialModel
   events  = defaultEvents
   url = "ws://" ++ host ++ ":3000/ws"
-  subs    = [ websocketSub (URL (S.pack url)) protocols HandleWebSocket ]
+  subs    = [ websocketSub (URL (S.pack url)) protocols HandleWebSocket] ++ Input.subs Input
   update  = updateModel
   view    = appView
   protocols = Protocols [ ]
@@ -76,8 +85,11 @@ updateModel msg model = handle
     where
       handle = case msg of
         HandleWebSocket ws -> handleNetwork ws
-        Select name -> noEff (model & #selected .~ Just name)
+        SelectDoc name -> noEff (model & #selected .~ Just name)
         ShowTab maybeTab -> noEff (model & #activeTab .~ maybeTab)
+
+        Input e -> model <# do
+          putStrLn "Hello World" >> pure Id
         Id -> noEff model
 
         -- (SendMessage msg)    -> model <# do send msg >> pure Id
@@ -172,7 +184,7 @@ imageSelector active images =
         ]
     ]
     where
-      selectRow (name, info) = tr_ [onClick (Select name), classList_ [("table-active", active == Just name)]]
+      selectRow (name, info) = tr_ [onClick (SelectDoc name), classList_ [("table-active", active == Just name)]]
             [ td_ [] [text' name]
             --, td [] (if info.annotated then [FA.edit] else [])
             ]
