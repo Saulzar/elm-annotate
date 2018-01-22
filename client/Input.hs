@@ -1,8 +1,11 @@
-module Input where
+module Input
+  ( Key
+  , module Input
+  ) where
+
+import Common
 
 import Miso.Subscription.Window
-
-
 import Web.KeyCode hiding (KeyCode)
 
 import           GHCJS.Foreign.Callback
@@ -10,43 +13,89 @@ import           GHCJS.Marshal
 import           JavaScript.Object
 import           JavaScript.Object.Internal
 
-import Geometry
-import GHC.Generics
-
 import qualified Data.Set as S
-import Data.Set (Set)
-
-import Data.Foldable
 import Miso hiding (Key)
 
 import Data.Aeson.Types
+import qualified Data.Aeson.Types as A
+
+import Geometry
 
 
-data Event = KeyDown Key | KeyUp Key | MouseMove (Int, Int) | Focus Bool
+data Event
+  = MouseWheel Float
+  | MouseDown Button
+  | MouseUp Button
+  | KeyDown Key
+  | KeyUp Key
+  | MouseMove Position
+  | Focus Bool
+    deriving (Show, Eq, Ord, Generic)
+
+data Button
+  = LeftButton
+  | MiddleButton
+  | RightButton
+  | OtherButton Int
+    deriving (Show, Eq, Ord, Generic)
+
 
 data State = State
   { keys :: Set Key
-  , mouse :: (Int, Int)
+  , mouse :: Position
 
   } deriving (Show, Generic, Eq)
 
 
-initial :: State
-initial = State
+init :: State
+init = State
   { keys  = S.empty
-  , mouse = (0, 0)
+  , mouse = V2 0 0
   }
 
 
-clientDecoder :: Decoder (Int, Int)
-clientDecoder = Decoder {..}
+update :: Event -> State -> State
+update (Focus   _) = #keys .~ S.empty
+update (KeyDown k) = #keys %~ S.insert k
+update (KeyUp   k) = #keys %~ S.delete k
+update (MouseMove p) = #mouse .~ p
+update _ = id
+
+
+
+
+toButton :: Int -> Button
+toButton 0 = LeftButton
+toButton 1 = MiddleButton
+toButton 2 = RightButton
+toButton n = OtherButton n
+
+
+instance Functor Decoder where
+  fmap f d = d { decoder = \val -> f <$> decoder d val }
+
+
+eventDecoder :: (A.Object -> Parser a) -> Decoder a
+eventDecoder f = Decoder {..}
   where
     decodeAt = DecodeTarget mempty
-    decoder = withObject "event" $ \o ->
-       (,) <$> (o .: "clientX") <*> (o .: "clientY")
+    decoder = withObject "event" f
+
+
+clientDecoder :: Decoder Position
+clientDecoder = toVector <$> eventDecoder (\o -> (,) <$> (o .: "clientX") <*> (o .: "clientY"))
+
+buttonDecoder :: Decoder Button
+buttonDecoder = eventDecoder (\o -> toButton <$> (o .: "button"))
+
 
 fromKeyCode :: KeyCode -> Key
 fromKeyCode (KeyCode code) = keyCodeLookup code
+
+
+wheelDecoder :: Decoder Float
+wheelDecoder = eventDecoder (\o -> o .: "deltaY")
+
 
 subs :: (Event -> action) -> [Sub action model]
 subs f =
@@ -55,5 +104,8 @@ subs f =
   , windowOn "keyup" keycodeDecoder (f . KeyUp . fromKeyCode)
   , windowOn "focus" emptyDecoder (f . const (Focus True))
   , windowOn "blur" emptyDecoder (f . const (Focus False))
+  , windowOn "mousedown" buttonDecoder (f . MouseDown)
+  , windowOn "mouseup" buttonDecoder (f . MouseUp)
+  , windowOn "mousewheel" wheelDecoder (f . MouseWheel)
 
   ]

@@ -4,8 +4,7 @@ module Geometry
   , module Geometry
   ) where
 
-import GHC.Generics
-import Data.Aeson (ToJSON(..), FromJSON(..))
+import Common
 
 import Linear.V2
 import Linear.Vector
@@ -13,6 +12,14 @@ import Linear.Vector
 data Box = Box { lower :: Vector, upper :: Vector } deriving (Generic, Show, Eq)
 data Extents = Extents { centre :: Position, extents :: Vector } deriving (Generic, Show, Eq)
 
+type Dim = (Int, Int)
+
+toVector :: Dim -> V2 Float
+toVector (x, y) = V2 (fromIntegral x) (fromIntegral y)
+
+
+clamp :: Ord a => (a, a) -> a -> a
+clamp (l, u) x = max l (min u x)
 
 boxSize :: Box -> Vector
 boxSize (Box l u) = u - l

@@ -1,28 +1,24 @@
 
 module Main where
 
-import Data.Monoid
-import           Data.Aeson
-import           GHC.Generics
-import           Data.Bool
-import qualified Data.Map as M
-import Data.Foldable
+import Common
 
-import Data.List (intersperse)
+import qualified Data.Map as M
 
 import           Miso
 import           Miso.String  (MisoString)
 import qualified Miso.String  as S
 
-import Scene
-
-import Data.Maybe
+import Miso.Subscription.Window
 import Network.URI
-import Types
 
+import Scene.Types (Image(..), Command(..))
+import qualified Scene as Scene
 import qualified Input as Input
 
-import Control.Lens
+import Types
+import qualified Debug.Trace as Debug
+
 
 
 data Action
@@ -30,9 +26,15 @@ data Action
   | SelectDoc DocName
   | ShowTab (Maybe MisoString)
   | Input (Input.Event)
+  | Resize (Dim)
+
+  | Scene [Command]
   -- | SendMessage ServerMsg
   -- | UpdateMessage MisoString
-  | Id
+  | Id deriving (Eq, Show, Generic)
+
+deriving instance Eq a => Eq (WebSocket a)
+deriving instance Show a => Show (WebSocket a)
 
 data NetworkState = Disconnected | Connected | Ready ClientId deriving (Show, Generic, Eq)
 
@@ -43,10 +45,9 @@ data Model = Model
   , selected :: Maybe DocName
   , activeTab :: Maybe MisoString
 
-  , input :: Input.State
+  , scene :: Scene.Scene
 
   } deriving (Show, Generic, Eq)
-
 
 
 
@@ -56,8 +57,7 @@ initialModel =  Model
   , network = Disconnected
   , selected = Nothing
   , activeTab = Nothing
-
-  , input = Input.initial
+  , scene = Scene.init
   }
 
 main :: IO ()
@@ -69,8 +69,11 @@ main = do
 start host = startApp App { initialAction = Id, ..} where
   model   = initialModel
   events  = defaultEvents
-  url = "ws://" ++ host ++ ":3000/ws"
-  subs    = [ websocketSub (URL (S.pack url)) protocols HandleWebSocket] ++ Input.subs Input
+  url = "ws://" <> host <> ":3000/ws"
+  subs    =
+    [ websocketSub (URL (S.pack url)) protocols HandleWebSocket
+    , windowSub Resize
+    ] <> Input.subs Input
   update  = updateModel
   view    = appView
   protocols = Protocols [ ]
@@ -79,33 +82,64 @@ start host = startApp App { initialAction = Id, ..} where
 
 
 
+imageInfo :: DocInfo -> DocName -> Image
+imageInfo info name = Image (info ^. #imageSize) ("images/" <> unDoc name)
+
+openDocument :: DocName -> Document -> ClientId -> Model -> Model
+openDocument name doc clientId model = fromMaybe model (open <$> mInfo) where
+    mInfo     = M.lookup name (model ^. #dataset . #images)
+    open info = model & #scene %~ Scene.setEditor editor
+      where editor = Scene.makeEditor (imageInfo info name) (name, doc) clientId
+
+
 
 updateModel :: Action -> Model -> Effect Action Model
-updateModel msg model = handle
+updateModel msg model = Debug.traceShow msg $ handle
     where
       handle = case msg of
         HandleWebSocket ws -> handleNetwork ws
-        SelectDoc name -> noEff (model & #selected .~ Just name)
+        SelectDoc name -> (model & #selected .~ Just name)
+           <# (send (ClientOpen name) >> pure Id)
+
         ShowTab maybeTab -> noEff (model & #activeTab .~ maybeTab)
 
-        Input e -> model <# do
-          putStrLn "Hello World" >> pure Id
+        Scene cmds -> foldM runCommand model cmds
+
+        Resize dim -> noEff $ model & #scene %~ Scene.resizeView (viewBox dim)
+        Input e    -> do
+          let model' = model & #scene %~ Scene.updateInput e
+          foldM runCommand model' (Scene.interact e (model' ^. #scene))
+
         Id -> noEff model
+
+
+      viewBox dim = Box (V2 0 0) (toVector dim)
 
         -- (SendMessage msg)    -> model <# do send msg >> pure Id
         --(UpdateMessage m)    -> noEff model { msg = Message m }
 
+      runCommand :: Model -> Command -> Effect Action Model
+      runCommand model = \case
+        MakeEdit d e -> model <# (send (ClientEdit d e) >> pure Id)
+        cmd        -> noEff (model & #scene %~ Scene.runCommand cmd)
+
 
       handleNetwork :: WebSocket ServerMsg -> Effect Action Model
-      handleNetwork (WebSocketMessage m)     = handleMessage m
+      handleNetwork (WebSocketMessage msg)     = handleMessage (model ^. #network) msg
       handleNetwork (WebSocketOpen) = noEff model { network = Connected }
       handleNetwork (WebSocketClose _ _ _) = noEff model { network = Disconnected }
       handleNetwork _ = noEff model
 
-      handleMessage :: ServerMsg -> Effect Action Model
-      handleMessage (ServerHello clientId dataset) = noEff model { network = Ready clientId, dataset = dataset}
-      handleMessage _ = noEff model
+      handleMessage :: NetworkState -> ServerMsg -> Effect Action Model
+      handleMessage Connected (ServerHello clientId dataset)  = model { network = Ready clientId, dataset = dataset}
+        <# (traverse (send . ClientOpen) (model ^. #selected) >> pure Id)
 
+      handleMessage (Ready clientId) msg = case msg of
+        ServerDocument docName document   -> noEff (openDocument docName document clientId model)
+        ServerOpen maybeDoc otherId time  -> noEff model
+        ServerEdit docName edit           -> error "not implemented"
+
+      handleMessage _ _ = error "message recieved in invalid state."
 
 
 
@@ -155,14 +189,15 @@ indicator state = div' "indicator" $ case state of
    Ready _   -> [text "Ready ", span_ [class_ "text-success"] [icon "check"]]
 
 interface :: Model -> [View Action]
-interface model =
-  [ indicator $ model ^. #network
-  ] ++ makeTabs (model ^. #activeTab) [("Images", imageBar model)]
+interface model@Model{..} =
+  [ Scene <$> Scene.view scene
+  , indicator $ network
+  ] <> makeTabs activeTab [("Images", imageBar model)]
 
 
 
 makeSelect :: Int -> [String] -> View Int
-makeSelect current options = select_ [class_ "custom-select"] (map opt (zip [0..] options))
+makeSelect current options = select_ [class_ "custom-select"] (opt <$> (zip [0..] options))
   where
     opt (value, name) = option_ [selected_ (current == value)] [text' name]
 
@@ -175,7 +210,7 @@ imageBar model@ (Model {..}) =
   where    imageSelect = imageSelector selected $ M.toList (dataset ^. #images)
 
 
-imageSelector :: Maybe String -> [(DocName, DocInfo)] ->  View Action
+imageSelector :: Maybe DocName -> [(DocName, DocInfo)] ->  View Action
 imageSelector active images =
   div_ [class_ "scroll"]
     [ table_ [class_ "table table-sm"]
@@ -185,7 +220,7 @@ imageSelector active images =
     ]
     where
       selectRow (name, info) = tr_ [onClick (SelectDoc name), classList_ [("table-active", active == Just name)]]
-            [ td_ [] [text' name]
+            [ td_ [] [text' (unDoc name)]
             --, td [] (if info.annotated then [FA.edit] else [])
             ]
 
@@ -195,7 +230,7 @@ imageSelector active images =
 
 
 makeTabs :: Maybe MisoString -> [(MisoString, View Action)] -> [View Action]
-makeTabs active tabs = [div' "tabs" [tabButtons active (fst <$> tabs)]] ++ (pane <$> tabs)
+makeTabs active tabs = [div' "tabs" [tabButtons active (fst <$> tabs)]] <> (pane <$> tabs)
   where pane (name, inner) = div_ [classes_ ["sidebar"], hidden_ (active /= Just name)]  [inner]
 
 tabButtons :: Maybe MisoString -> [MisoString] -> View Action

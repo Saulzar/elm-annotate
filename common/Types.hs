@@ -2,34 +2,22 @@ module Types (
   module Types,
   module Geometry,
 
-  module Data.Generics.Labels,
   Generic(..),
 ) where
 
-
-import GHC.Generics
+import Common
 
 import qualified Data.Map as M
-import Data.Map (Map)
-
-import Data.Aeson (ToJSON(..), FromJSON(..))
-
-import Data.Time.Clock
 
 import Data.Generics.Product
-import Data.Generics.Labels()
-
 import Geometry
 
+newtype ObjId = ObjId { unObj :: (Int, ClientId) } deriving (Show, Ord, Eq, Generic, FromJSON, ToJSON, FromJSONKey, ToJSONKey)
+newtype ClientId = ClientId { unClient :: Int } deriving (Show, Ord, Eq, Enum, Generic, FromJSON, ToJSON, FromJSONKey, ToJSONKey)
+newtype DocName = DocName { unDoc :: String } deriving (Ord, Eq, Generic, FromJSON, ToJSON, FromJSONKey, ToJSONKey)
 
-type ObjId = (Int, Int)
-
-type ClientId = Int
-type DocName = String
-
-type DateTime = UTCTime
-
-type Dim = (Int, Int)
+instance Show DocName where
+  show (DocName d) = d
 
 
 data Edit
@@ -46,14 +34,14 @@ data Object = ObjPoint {position :: (V2 Float), radius :: (V2 Float)} | ObjBox B
 data Document = Document
   { undos :: [Edit]
   , redos :: [Edit]
-  , instances :: Map (Int, Int) Object
+  , instances :: Map ObjId Object
   } deriving (Generic, Show, Eq)
 
 
 data DocInfo = DocInfo
-  { modified :: Maybe DateTime
+  { modified :: Maybe UTCTime
   , included :: Bool
-  , imageSize :: (Int, Int)
+  , imageSize :: Dim
   } deriving (Generic, Show, Eq)
 
 
@@ -63,16 +51,16 @@ data Config = Config
 
 data Dataset = Dataset
   { config :: Config
-  , images :: Map String DocInfo
+  , images :: Map DocName DocInfo
   } deriving (Generic, Show, Eq)
 
 
 
 data ServerMsg
   = ServerHello ClientId Dataset
-  | ServerDocument Document
-  | ServerOpen (Maybe DocName) Int DateTime
-  | ServerEdit String Edit
+  | ServerDocument DocName Document
+  | ServerOpen (Maybe DocName) ClientId UTCTime
+  | ServerEdit DocName Edit
       deriving (Generic, Show, Eq)
 
 data ClientMsg

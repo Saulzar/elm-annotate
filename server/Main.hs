@@ -1,59 +1,23 @@
 module Main where
 
-
-import Control.Monad
-import Control.Monad.IO.Class
-
+import Common
 import Control.Concurrent.STM
 import GHC.Conc
 
 import Control.Concurrent.Log
-
-import Data.List
-import Data.Maybe
-import Data.Foldable
-
-import Control.Exception
-import Data.Typeable
-import Data.Time.Clock
-
 import Control.Lens
-
-import GHC.Generics
 
 import System.FilePath
 import System.Directory
 import System.IO
-import System.Environment (getArgs)
 
 import Options as Opt
 
-import Data.Char (toLower, isSpace)
-import Data.Void (Void)
-
 import qualified Data.Map as M
-import Data.Map (Map)
-
 import qualified Data.Set as S
-import Data.Set (Set)
-
-import Data.Aeson hiding (Object)
 
 import qualified Data.ByteString.Lazy                      as BS
 import Data.ByteString.Lazy (ByteString)
-
-import Control.Concurrent
-import qualified Control.Exception              as Exception
--- import Codec.Picture as Codec
--- import Codec.Picture.Metadata as Codec
-
-import System.Process (readProcessWithExitCode)
-import System.Exit (ExitCode(..))
-
-import Text.Megaparsec
-import Text.Megaparsec.Char
-import Text.Megaparsec.Char.Lexer (decimal)
-import Control.Monad.Combinators
 
 import qualified Network.HTTP.Types             as Http
 import qualified Network.Wai                    as Wai
@@ -64,23 +28,28 @@ import qualified Network.Wai.Handler.Warp       as Warp
 import qualified Network.Wai.Handler.WebSockets as WS
 import qualified Network.WebSockets             as WS
 
+import Servant
+import Servant.Utils.StaticFiles
+
 import qualified Types as T
+import qualified Document as Doc
 
 import Types
 import AppState
 
-import Servant
-import Servant.Utils.StaticFiles
+import ImageInfo
+
+
 
 data ClientAction = ClientClose | ClientSend ServerMsg deriving (Show, Generic)
 
 data Client  = Client
   { connection :: TChan ClientAction
-  , document   :: Maybe String
+  , document   :: Maybe DocName
   } deriving (Generic)
 
 
-type Clients = TVar (Map Int Client)
+type Clients = TVar (Map ClientId Client)
 type Documents = TVar (Map DocName [ClientId])
 
 type LogMsg = String
@@ -101,14 +70,13 @@ data Error = LogError String | RootDirectoryMissing FilePath | DecodeError ByteS
 instance Exception Error
 
 
-
-nextClient :: Map Int Client -> ClientId
-nextClient m = fromMaybe 0 (succ . fst . fst <$>  M.maxViewWithKey m)
+nextClient :: Map ClientId Client -> ClientId
+nextClient m = fromMaybe (ClientId 0) (succ . fst . fst <$>  M.maxViewWithKey m)
 
 
 sendHello :: Env -> ClientId -> STM ()
 sendHello env clientId = do
-  ds <- getDataset <$> readCurrent (env ^. #state)
+  ds <- getDataset <$> readLog (env ^. #state)
   sendClient env clientId (ServerHello clientId ds)
 
 
@@ -119,7 +87,7 @@ connectClient env conn = do
     clientId <- nextClient <$> readTVar (env ^. #clients)
     chan <- newTChan
     modifyTVar (env ^. #clients) (M.insert clientId (Client chan Nothing))
-    writeLog env $ "client connected: " ++ show clientId
+    writeLog env $ "connected: " <> show clientId
     return (clientId, chan)
 
   clientId <$ forkIO (sendThread chan)
@@ -148,7 +116,7 @@ disconnectClient env clientId = atomically $ do
     broadcast env (ServerOpen Nothing clientId time)
 
   modifyTVar (view #clients env) (M.delete clientId)
-  writeLog env $ "disconnected: " ++ show clientId
+  writeLog env $ "disconnected: " <> show clientId
 
 
 
@@ -171,9 +139,9 @@ at' :: (At m, Applicative f) =>
 at' i = at i . traverse
 
 
-
-respond :: MonadIO m => WS.Connection -> T.ServerMsg -> m ()
-respond conn msg = liftIO $ WS.sendTextData conn (encode msg)
+--
+-- respond :: MonadIO m => WS.Connection -> T.ServerMsg -> m ()
+-- respond conn msg = liftIO $ WS.sendTextData conn (encode msg)
 
 
 
@@ -192,15 +160,15 @@ closeDocument (Env {..}) clientId  = (^? clientDoc clientId) <$> readTVar client
         []  -> Nothing
         cs' -> Just cs'
 
-        --   (#documents . at' doc ^?) <$> readCurrent state >>= traverse_ (\doc -> do
+        --   (#documents . at' doc ^?) <$> readLog state >>= traverse_ (\doc -> do
         --     writeTChan docWriter (DocFlush docName doc))
-
-
 
 
 
 openDocument :: Env -> ClientId -> DocName -> STM ()
 openDocument env@(Env {..}) clientId docName = do
+  writeLog env ("opening " <> show clientId <> ", " <> show docName)
+
   closeDocument env clientId
 
   modifyTVar clients (at' clientId . #document .~ Just docName)
@@ -234,9 +202,15 @@ recieveLoop env conn clientId = do
   atomically $ sendHello env clientId
   forever $ do
     req <- tryDecode =<< liftIO (WS.receiveData conn)
-    liftIO $ print req
+    atomically $ writeLog env (show req)
     case req of
-        ClientOpen file -> atomically $ openDocument env clientId file
+        ClientOpen file -> atomically $ do
+          (mInfo, mDoc) <- lookupDoc file <$> readLog (env ^. #state)
+          forM mInfo $ \info -> do
+            openDocument env clientId file
+            sendClient env clientId (ServerDocument file (fromMaybe Doc.empty mDoc))
+
+        ClientEdit docName edit -> error "not implemented"
 
 
 
@@ -260,7 +234,7 @@ websocketServer env pending = do
   clientId <- connectClient env conn
 
   WS.forkPingThread conn 30
-  Exception.finally
+  finally
     (recieveLoop env conn clientId)
     (disconnectClient env clientId)
 
@@ -289,14 +263,14 @@ withDefault ws = Tagged $ WS.websocketsOr WS.defaultConnectionOptions ws backupA
 
 
 validExtension :: [String] -> FilePath -> Bool
-validExtension exts filename = any (\e -> map toLower e == ext) exts where
-  ext = map toLower (takeExtension filename)
+validExtension exts filename = any (\e -> fmap toLower e == ext) exts where
+  ext = fmap toLower (takeExtension filename)
 
 
 findImages :: Config -> FilePath -> IO [DocName]
 findImages config root = do
   contents <- listDirectory root
-  return $ filter (validExtension (config ^. #extensions)) contents
+  return $ DocName <$> filter (validExtension (config ^. #extensions)) contents
 
 
 -- imageInfo :: FilePath -> IO (Maybe DocInfo)
@@ -312,56 +286,13 @@ findImages config root = do
 
 -- /home/oliver/trees/_DSC2028.JPG JPEG 1600x1064 1600x1064+0+0 8-bit sRGB 958KB 0.000u 0:00.000
 
-defaultInfo :: Dim -> DocInfo
-defaultInfo dim = DocInfo
-  { modified = Nothing
-  , included = False
-  , imageSize = dim
-  }
-
-type Parser = Parsec Void String
-
-parseIdentify :: Parser (FilePath, String, Dim)
-parseIdentify = do
-  filename <- parseFilename
-  space
-  code <- fileCode
-  space
-  dim <- parseDim
-  many anyChar
-  return (filename, code, dim)
-
-
-parseFilename :: Parser String
-parseFilename = takeWhile1P Nothing (not . isSpace) <?> "word"
-
-fileCode :: Parser String
-fileCode = some letterChar <?> "file code"
-
-parseDim :: Parser Dim
-parseDim = do
-  w <- decimal
-  char 'x'
-  h <- decimal
-  return (w, h)
-
-
-imageInfo :: FilePath -> IO (Maybe DocInfo)
-imageInfo filename = do
-  (exit, out, _) <- readProcessWithExitCode "identify" [filename] ""
-  return $ case exit of
-    ExitSuccess -> toInfo <$> parseMaybe parseIdentify out
-    _           -> Nothing
-
-    where
-      toInfo (_, _, dim) = defaultInfo dim
 
 findNewImages :: Config -> FilePath -> Map DocName DocInfo -> IO [(DocName, DocInfo)]
 findNewImages config root existing = do
   images <- findImages config root
 
   catMaybes <$> (forM (filter (flip M.notMember existing) images) $ \image -> do
-    fmap (image, ) <$> imageInfo (root </> image))
+    fmap (image, ) <$> imageInfo (root </> unDoc image))
 
 
 
@@ -398,13 +329,13 @@ main = do
 
 
   atomically $ do
-    config <- view #config <$> readCurrent state
+    config <- view #config <$> readLog state
 
-    existing <- getImages state
+    existing <- view #images <$> readLog state
     images <- unsafeIOToSTM (findNewImages config root existing)
     updateLog state (CmdImages images)
 
-  print =<< atomically (readCurrent state)
+  print =<< atomically (readLog state)
 
 
   Warp.run 3000 $ serve (Proxy @ Api) (server $ Env {..})

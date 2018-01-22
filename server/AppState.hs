@@ -1,15 +1,12 @@
 module AppState where
 
-import           Control.Applicative
-import           Control.Monad.Reader
-import           Control.Monad.State
-import           Data.SafeCopy
 
-import           Data.Typeable
+import Common
+
+import           Data.SafeCopy
 import           System.FilePath
 
 import qualified Data.Map as M
-import Data.Map (Map)
 
 import Types
 import Control.Lens
@@ -22,6 +19,7 @@ import Data.Time.Clock
 import Linear.Affine
 
 import Control.Concurrent.Log
+import Data.SafeCopy
 
 data AppState = AppState
   { config :: Config
@@ -36,10 +34,13 @@ data Command where
   CmdImages :: [(DocName, DocInfo)] -> Command
 
 
+$(deriveSafeCopy 0 'base ''DocName)
+$(deriveSafeCopy 0 'base ''ObjId)
+$(deriveSafeCopy 0 'base ''ClientId)
+
 $(deriveSafeCopy 0 'base ''V2)
 $(deriveSafeCopy 0 'base ''Box)
 $(deriveSafeCopy 0 'base ''Extents)
-
 
 $(deriveSafeCopy 0 'base ''Object)
 $(deriveSafeCopy 0 'base ''Edit)
@@ -49,6 +50,7 @@ $(deriveSafeCopy 0 'base ''Config)
 $(deriveSafeCopy 0 'base ''AppState)
 
 $(deriveSafeCopy 0 'base ''Command)
+
 
 
 docInfo :: DocName -> Traversal' AppState DocInfo
@@ -71,10 +73,8 @@ initialState config = AppState
   }
 
 
-getImages :: Log AppState -> STM (Map DocName DocInfo)
-getImages db = view #images <$> readCurrent db
-
-
+lookupDoc :: DocName -> AppState -> (Maybe DocInfo, Maybe Document)
+lookupDoc name AppState{..} = (M.lookup name images, M.lookup name documents)
 
 getDataset :: AppState -> Dataset
 getDataset = upcast

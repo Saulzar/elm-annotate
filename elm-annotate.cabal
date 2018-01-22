@@ -17,13 +17,13 @@ cabal-version:       >=1.10
 
 library
 
-  exposed-modules:     Document, Types, Geometry
+  exposed-modules:     Document, Types, Geometry, Common
   default-extensions:  DuplicateRecordFields, TemplateHaskell, FlexibleInstances, FlexibleContexts,
                        GADTs, MultiParamTypeClasses, TypeApplications, OverloadedStrings,
                        ScopedTypeVariables, LambdaCase, DeriveGeneric, DeriveDataTypeable,
                        DataKinds, RankNTypes, OverloadedLabels, TemplateHaskell, QuasiQuotes,
                        TypeFamilies, GeneralizedNewtypeDeriving, StandaloneDeriving, TupleSections,
-                       RecordWildCards, TypeOperators, NoMonomorphismRestriction, PatternSynonyms
+                       RecordWildCards, TypeOperators, NoMonomorphismRestriction, PatternSynonyms, NoImplicitPrelude
   build-depends:       base >=4.9 && <5,
                        aeson >= 1.0, mtl, containers, lens, generic-lens, generic-lens-labels,
                        time, linear
@@ -35,13 +35,13 @@ executable client
         buildable: False
 
     main-is:             Main.hs
-    other-modules:       Scene, Viewport, Input
+    other-modules:       Scene, Scene.Viewport, Scene.Types, Scene.Interaction, Scene.Settings, Input, Svg, Util
     default-extensions:  DuplicateRecordFields, TemplateHaskell, FlexibleInstances, FlexibleContexts,
                          GADTs, MultiParamTypeClasses, TypeApplications, OverloadedStrings, OverloadedLists,
                          ScopedTypeVariables, LambdaCase, DeriveGeneric, DeriveDataTypeable,
                          DataKinds, RankNTypes, OverloadedLabels,  TemplateHaskell, QuasiQuotes,
                          TypeFamilies, GeneralizedNewtypeDeriving, StandaloneDeriving, TupleSections,
-                         RecordWildCards, TypeOperators, NoMonomorphismRestriction, PatternSynonyms
+                         RecordWildCards, TypeOperators, NoMonomorphismRestriction, PatternSynonyms, NoImplicitPrelude
     build-depends:       base >=4.9 && <5,
                          aeson, mtl, containers, cmdargs, lens, generic-lens, generic-lens-labels, elm-annotate,
                          miso >= 0.11.0.0, network-uri, linear, keycode, ghcjs-base
@@ -59,7 +59,7 @@ executable server
                          ScopedTypeVariables, LambdaCase, DeriveGeneric, DeriveDataTypeable,
                          DataKinds, RankNTypes, OverloadedLabels, TemplateHaskell, QuasiQuotes,
                          TypeFamilies, GeneralizedNewtypeDeriving, StandaloneDeriving, TupleSections,
-                         RecordWildCards, TypeOperators, NoMonomorphismRestriction, PatternSynonyms
+                         RecordWildCards, TypeOperators, NoMonomorphismRestriction, PatternSynonyms, NoImplicitPrelude
     build-depends:       base >=4.9 && <5,
                          wai, wai-websockets, wai-app-static, text, bytestring, safe,
                          warp, http-types, websockets, aeson, mtl, containers,

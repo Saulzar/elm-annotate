@@ -1,5 +1,6 @@
 module Options where
 
+import Common
 import System.Console.CmdArgs.Implicit
 
 default (Int, Float)
