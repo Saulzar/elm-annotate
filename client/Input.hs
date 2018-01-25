@@ -21,6 +21,7 @@ import qualified Data.Aeson.Types as A
 
 import Geometry
 
+import Debug.Trace
 
 data Event
   = MouseWheel Float
@@ -99,13 +100,13 @@ wheelDecoder = eventDecoder (\o -> o .: "deltaY")
 
 subs :: (Event -> action) -> [Sub action model]
 subs f =
-  [ windowOn "mousemove" clientDecoder (f . MouseMove)
-  , windowOn "keydown" keycodeDecoder (f . KeyDown . fromKeyCode)
-  , windowOn "keyup" keycodeDecoder (f . KeyUp . fromKeyCode)
-  , windowOn "focus" emptyDecoder (f . const (Focus True))
-  , windowOn "blur" emptyDecoder (f . const (Focus False))
-  , windowOn "mousedown" buttonDecoder (f . MouseDown)
-  , windowOn "mouseup" buttonDecoder (f . MouseUp)
-  , windowOn "mousewheel" wheelDecoder (f . MouseWheel)
+  [ windowOn "mousemove"  clientDecoder  (f . MouseMove)
+  , windowOn "keydown"    keycodeDecoder (f . KeyDown . fromKeyCode)
+  , windowOn "keyup"      keycodeDecoder (f . KeyUp . fromKeyCode)
+  , windowOn "focus"      emptyDecoder   (f . const (Focus True))
+  , windowOn "blur"       emptyDecoder   (f . const (Focus False))
+  , windowOn "mousedown"  buttonDecoder  (f . MouseDown)
+  , windowOn "mouseup"    buttonDecoder  (f . MouseUp)
+  , windowOn "wheel"      wheelDecoder   (f . MouseWheel)
 
   ]

@@ -10,7 +10,7 @@ import Common
 import Types
 import qualified Input as Input
 
-import Scene.Viewport (Viewport)
+import Scene.Viewport (Viewport, toLocal)
 import Scene.Settings (Settings)
 
 
@@ -23,16 +23,15 @@ data Command
   | ScaleBrush Float
   | MakeEdit DocName Edit
 
-  | Start Interaction
-  | End
+  | Interact (Maybe Interaction)
 
     deriving (Eq, Show, Generic)
 
 
 
 data Interaction = Interaction
-  { update  :: Input.Event -> Env -> [Command]
-  , view    :: Env -> View ()
+  { update  :: Env -> Input.Event -> [Command]
+  , view    :: Env -> View [Command]
   , cursor  :: String
   , pending :: [Edit]
   } deriving (Generic)
@@ -79,3 +78,7 @@ data Env = Env
   , background  :: Image
   , input       :: Input.State
   } deriving (Generic, Show, Eq)
+
+
+localMouse :: Env -> Position
+localMouse Env{..} = toLocal viewport (input ^. #mouse)

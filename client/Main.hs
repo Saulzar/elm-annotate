@@ -68,7 +68,7 @@ main = do
 
 start host = startApp App { initialAction = Id, ..} where
   model   = initialModel
-  events  = defaultEvents
+  events  = defaultEvents <> [("wheel", False)]
   url = "ws://" <> host <> ":3000/ws"
   subs    =
     [ websocketSub (URL (S.pack url)) protocols HandleWebSocket
@@ -86,7 +86,7 @@ imageInfo :: DocInfo -> DocName -> Image
 imageInfo info name = Image (info ^. #imageSize) ("images/" <> unDoc name)
 
 openDocument :: DocName -> Document -> ClientId -> Model -> Model
-openDocument name doc clientId model = fromMaybe model (open <$> mInfo) where
+openDocument name doc clientId model = maybe model open mInfo where
     mInfo     = M.lookup name (model ^. #dataset . #images)
     open info = model & #scene %~ Scene.setEditor editor
       where editor = Scene.makeEditor (imageInfo info name) (name, doc) clientId
@@ -121,7 +121,7 @@ updateModel msg model = Debug.traceShow msg $ handle
       runCommand :: Model -> Command -> Effect Action Model
       runCommand model = \case
         MakeEdit d e -> model <# (send (ClientEdit d e) >> pure Id)
-        cmd        -> noEff (model & #scene %~ Scene.runCommand cmd)
+        cmd        -> Debug.traceShow cmd $ noEff (model & #scene %~ Scene.runCommand cmd)
 
 
       handleNetwork :: WebSocket ServerMsg -> Effect Action Model
@@ -207,7 +207,7 @@ imageBar model@ (Model {..}) =
         [div' "card-body d-flex flex-column"
             [ imageSelect]
         ]
-  where    imageSelect = imageSelector selected $ M.toList (dataset ^. #images)
+  where    imageSelect = imageSelector selected $ take 1 $ M.toList (dataset ^. #images)
 
 
 imageSelector :: Maybe DocName -> [(DocName, DocInfo)] ->  View Action

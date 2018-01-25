@@ -29,8 +29,8 @@ import Control.Lens as X
   )
 import Data.Aeson as X (ToJSON(..), FromJSON(..), FromJSONKey(..), ToJSONKey(..), decode, encode)
 
-import Data.List as X (intersperse, filter, zip, zip3, zipWith, zipWith3)
-import Data.Maybe as X (fromMaybe, maybe, catMaybes, Maybe (..))
+import Data.List as X (intersperse, filter, zip, zip3, zipWith, zipWith3, lookup, take, drop)
+import Data.Maybe as X (fromMaybe, maybe, catMaybes, Maybe (..), maybeToList)
 import Data.Either as X (either, Either (..))
 
 import Data.Int as X
