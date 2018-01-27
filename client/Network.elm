@@ -15,10 +15,6 @@ import Json.Decode as Json exposing (Value)
 --       Err err -> Debug.log ("Decode response: " ++ err) (f <| Error err)
 
 
-
-
-
-
 type Msg = Error String | Open | Close | Message ServerMsg | Retry
 
 

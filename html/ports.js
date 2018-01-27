@@ -129,9 +129,9 @@ function subscribe(app) {
       const img = document.createElement( "img" )
 
       k = t[0]
-      path = t[1]
+      src = t[1]
 
-      img.onload = () => app.ports.imageLoaded.send( [k, {src : path, size : {x : img.width, y : img.height}}] )
+      img.onload = () => app.ports.imageLoaded.send( [k, {src : src, size : {x : img.width, y : img.height}}] )
       img.src = src
     });
 

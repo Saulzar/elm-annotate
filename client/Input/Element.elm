@@ -3,9 +3,8 @@ port module Input.Element exposing (..)
 -- import Process
 -- import Task exposing (Task)
 
-import Vector as V exposing (Vec2, Position, Size, Box, v2)
-import VirtualDom exposing (on, onWithOptions)
-
+import Types exposing (Box, Extents)
+import Vector as V exposing (Position, Size, vec)
 import Json.Decode exposing (..)
 
 
@@ -19,7 +18,7 @@ type alias ClientRect =
 
 -- Events
 toGeometry: ClientRect -> Box
-toGeometry rect = Box (v2 rect.left rect.top) (v2 (rect.right - rect.left) (rect.bottom - rect.top))
+toGeometry rect = Box (vec rect.left rect.top) (vec rect.right rect.bottom)
 
 
 decodeClientRect : Decoder ClientRect

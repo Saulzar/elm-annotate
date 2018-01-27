@@ -8,42 +8,42 @@ import Dict exposing (Dict)
 import Set exposing (Set)
 import Common exposing (..)
 
-type alias Vec2  =
-   { x: Float
-   , y: Float
-   }
-
-jsonDecVec2 : Json.Decode.Decoder ( Vec2 )
-jsonDecVec2 =
-   ("x" := Json.Decode.float) >>= \px ->
-   ("y" := Json.Decode.float) >>= \py ->
-   Json.Decode.succeed {x = px, y = py}
-
-jsonEncVec2 : Vec2 -> Value
-jsonEncVec2  val =
-   Json.Encode.object
-   [ ("x", Json.Encode.float val.x)
-   , ("y", Json.Encode.float val.y)
-   ]
-
-
-
 type alias Box  =
-   { position: Vec2
-   , size: Vec2
+   { lower: Vec
+   , upper: Vec
    }
 
 jsonDecBox : Json.Decode.Decoder ( Box )
 jsonDecBox =
-   ("position" := jsonDecVec2) >>= \pposition ->
-   ("size" := jsonDecVec2) >>= \psize ->
-   Json.Decode.succeed {position = pposition, size = psize}
+   ("lower" := jsonDecVec) >>= \plower ->
+   ("upper" := jsonDecVec) >>= \pupper ->
+   Json.Decode.succeed {lower = plower, upper = pupper}
 
 jsonEncBox : Box -> Value
 jsonEncBox  val =
    Json.Encode.object
-   [ ("position", jsonEncVec2 val.position)
-   , ("size", jsonEncVec2 val.size)
+   [ ("lower", jsonEncVec val.lower)
+   , ("upper", jsonEncVec val.upper)
+   ]
+
+
+
+type alias Extents  =
+   { centre: Vec
+   , extents: Vec
+   }
+
+jsonDecExtents : Json.Decode.Decoder ( Extents )
+jsonDecExtents =
+   ("centre" := jsonDecVec) >>= \pcentre ->
+   ("extents" := jsonDecVec) >>= \pextents ->
+   Json.Decode.succeed {centre = pcentre, extents = pextents}
+
+jsonEncExtents : Extents -> Value
+jsonEncExtents  val =
+   Json.Encode.object
+   [ ("centre", jsonEncVec val.centre)
+   , ("extents", jsonEncVec val.extents)
    ]
 
 
@@ -51,7 +51,7 @@ jsonEncBox  val =
 type Edit  =
     Add ObjId Object
     | Delete ObjId
-    | Transform (List ObjId) Float Vec2
+    | Transform (List ObjId) Float Vec
     | Many (List Edit)
 
 jsonDecEdit : Json.Decode.Decoder ( Edit )
@@ -59,7 +59,7 @@ jsonDecEdit =
     let jsonDecDictEdit = Dict.fromList
             [ ("Add", Json.Decode.lazy (\_ -> Json.Decode.map2 Add (Json.Decode.index 0 (jsonDecObjId)) (Json.Decode.index 1 (jsonDecObject))))
             , ("Delete", Json.Decode.lazy (\_ -> Json.Decode.map Delete (jsonDecObjId)))
-            , ("Transform", Json.Decode.lazy (\_ -> Json.Decode.map3 Transform (Json.Decode.index 0 (Json.Decode.list (jsonDecObjId))) (Json.Decode.index 1 (Json.Decode.float)) (Json.Decode.index 2 (jsonDecVec2))))
+            , ("Transform", Json.Decode.lazy (\_ -> Json.Decode.map3 Transform (Json.Decode.index 0 (Json.Decode.list (jsonDecObjId))) (Json.Decode.index 1 (Json.Decode.float)) (Json.Decode.index 2 (jsonDecVec))))
             , ("Many", Json.Decode.lazy (\_ -> Json.Decode.map Many (Json.Decode.list (jsonDecEdit))))
             ]
     in  decodeSumObjectWithSingleField  "Edit" jsonDecDictEdit
@@ -69,20 +69,20 @@ jsonEncEdit  val =
     let keyval v = case v of
                     Add v1 v2 -> ("Add", encodeValue (Json.Encode.list [jsonEncObjId v1, jsonEncObject v2]))
                     Delete v1 -> ("Delete", encodeValue (jsonEncObjId v1))
-                    Transform v1 v2 v3 -> ("Transform", encodeValue (Json.Encode.list [(Json.Encode.list << List.map jsonEncObjId) v1, Json.Encode.float v2, jsonEncVec2 v3]))
+                    Transform v1 v2 v3 -> ("Transform", encodeValue (Json.Encode.list [(Json.Encode.list << List.map jsonEncObjId) v1, Json.Encode.float v2, jsonEncVec v3]))
                     Many v1 -> ("Many", encodeValue ((Json.Encode.list << List.map jsonEncEdit) v1))
     in encodeSumObjectWithSingleField keyval val
 
 
 
 type Object  =
-    ObjPoint {position: Vec2, radius: Float}
+    ObjPoint {position: Vec, radius: Float}
     | ObjBox Box
 
 jsonDecObject : Json.Decode.Decoder ( Object )
 jsonDecObject =
     let jsonDecDictObject = Dict.fromList
-            [ ("ObjPoint", Json.Decode.lazy (\_ -> Json.Decode.map ObjPoint (   ("position" := jsonDecVec2) >>= \pposition ->    ("radius" := Json.Decode.float) >>= \pradius ->    Json.Decode.succeed {position = pposition, radius = pradius})))
+            [ ("ObjPoint", Json.Decode.lazy (\_ -> Json.Decode.map ObjPoint (   ("position" := jsonDecVec) >>= \pposition ->    ("radius" := Json.Decode.float) >>= \pradius ->    Json.Decode.succeed {position = pposition, radius = pradius})))
             , ("ObjBox", Json.Decode.lazy (\_ -> Json.Decode.map ObjBox (jsonDecBox)))
             ]
     in  decodeSumObjectWithSingleField  "Object" jsonDecDictObject
@@ -90,7 +90,7 @@ jsonDecObject =
 jsonEncObject : Object -> Value
 jsonEncObject  val =
     let keyval v = case v of
-                    ObjPoint vs -> ("ObjPoint", encodeObject [("position", jsonEncVec2 vs.position), ("radius", Json.Encode.float vs.radius)])
+                    ObjPoint vs -> ("ObjPoint", encodeObject [("position", jsonEncVec vs.position), ("radius", Json.Encode.float vs.radius)])
                     ObjBox v1 -> ("ObjBox", encodeValue (jsonEncBox v1))
     in encodeSumObjectWithSingleField keyval val
 
@@ -99,14 +99,14 @@ jsonEncObject  val =
 type alias Document  =
    { undos: (List Edit)
    , redos: (List Edit)
-   , instances: (Dict (Int, Int) Object)
+   , instances: (Dict ObjId Object)
    }
 
 jsonDecDocument : Json.Decode.Decoder ( Document )
 jsonDecDocument =
    ("undos" := Json.Decode.list (jsonDecEdit)) >>= \pundos ->
    ("redos" := Json.Decode.list (jsonDecEdit)) >>= \predos ->
-   ("instances" := decodeMap (Json.Decode.map2 (,) (Json.Decode.index 0 (Json.Decode.int)) (Json.Decode.index 1 (Json.Decode.int))) (jsonDecObject)) >>= \pinstances ->
+   ("instances" := decodeMap (jsonDecObjId) (jsonDecObject)) >>= \pinstances ->
    Json.Decode.succeed {undos = pundos, redos = predos, instances = pinstances}
 
 jsonEncDocument : Document -> Value
@@ -114,7 +114,7 @@ jsonEncDocument  val =
    Json.Encode.object
    [ ("undos", (Json.Encode.list << List.map jsonEncEdit) val.undos)
    , ("redos", (Json.Encode.list << List.map jsonEncEdit) val.redos)
-   , ("instances", (encodeMap ((\(v1,v2) -> Json.Encode.list [(Json.Encode.int) v1,(Json.Encode.int) v2])) (jsonEncObject)) val.instances)
+   , ("instances", (encodeMap (jsonEncObjId) (jsonEncObject)) val.instances)
    ]
 
 
@@ -142,17 +142,17 @@ jsonEncClientMsg  val =
 
 type ServerMsg  =
     ServerHello ClientId Dataset
-    | ServerDocument Document
-    | ServerOpen (Maybe DocName) Int DateTime
-    | ServerEdit String Edit
+    | ServerDocument DocName Document
+    | ServerOpen (Maybe DocName) ClientId DateTime
+    | ServerEdit DocName Edit
 
 jsonDecServerMsg : Json.Decode.Decoder ( ServerMsg )
 jsonDecServerMsg =
     let jsonDecDictServerMsg = Dict.fromList
             [ ("ServerHello", Json.Decode.lazy (\_ -> Json.Decode.map2 ServerHello (Json.Decode.index 0 (jsonDecClientId)) (Json.Decode.index 1 (jsonDecDataset))))
-            , ("ServerDocument", Json.Decode.lazy (\_ -> Json.Decode.map ServerDocument (jsonDecDocument)))
-            , ("ServerOpen", Json.Decode.lazy (\_ -> Json.Decode.map3 ServerOpen (Json.Decode.index 0 (Json.Decode.maybe (jsonDecDocName))) (Json.Decode.index 1 (Json.Decode.int)) (Json.Decode.index 2 (jsonDecDateTime))))
-            , ("ServerEdit", Json.Decode.lazy (\_ -> Json.Decode.map2 ServerEdit (Json.Decode.index 0 (Json.Decode.string)) (Json.Decode.index 1 (jsonDecEdit))))
+            , ("ServerDocument", Json.Decode.lazy (\_ -> Json.Decode.map2 ServerDocument (Json.Decode.index 0 (jsonDecDocName)) (Json.Decode.index 1 (jsonDecDocument))))
+            , ("ServerOpen", Json.Decode.lazy (\_ -> Json.Decode.map3 ServerOpen (Json.Decode.index 0 (Json.Decode.maybe (jsonDecDocName))) (Json.Decode.index 1 (jsonDecClientId)) (Json.Decode.index 2 (jsonDecDateTime))))
+            , ("ServerEdit", Json.Decode.lazy (\_ -> Json.Decode.map2 ServerEdit (Json.Decode.index 0 (jsonDecDocName)) (Json.Decode.index 1 (jsonDecEdit))))
             ]
     in  decodeSumObjectWithSingleField  "ServerMsg" jsonDecDictServerMsg
 
@@ -160,9 +160,9 @@ jsonEncServerMsg : ServerMsg -> Value
 jsonEncServerMsg  val =
     let keyval v = case v of
                     ServerHello v1 v2 -> ("ServerHello", encodeValue (Json.Encode.list [jsonEncClientId v1, jsonEncDataset v2]))
-                    ServerDocument v1 -> ("ServerDocument", encodeValue (jsonEncDocument v1))
-                    ServerOpen v1 v2 v3 -> ("ServerOpen", encodeValue (Json.Encode.list [(maybeEncode (jsonEncDocName)) v1, Json.Encode.int v2, jsonEncDateTime v3]))
-                    ServerEdit v1 v2 -> ("ServerEdit", encodeValue (Json.Encode.list [Json.Encode.string v1, jsonEncEdit v2]))
+                    ServerDocument v1 v2 -> ("ServerDocument", encodeValue (Json.Encode.list [jsonEncDocName v1, jsonEncDocument v2]))
+                    ServerOpen v1 v2 v3 -> ("ServerOpen", encodeValue (Json.Encode.list [(maybeEncode (jsonEncDocName)) v1, jsonEncClientId v2, jsonEncDateTime v3]))
+                    ServerEdit v1 v2 -> ("ServerEdit", encodeValue (Json.Encode.list [jsonEncDocName v1, jsonEncEdit v2]))
     in encodeSumObjectWithSingleField keyval val
 
 
@@ -170,19 +170,22 @@ jsonEncServerMsg  val =
 type alias DocInfo  =
    { modified: (Maybe DateTime)
    , included: Bool
+   , imageSize: (Int, Int)
    }
 
 jsonDecDocInfo : Json.Decode.Decoder ( DocInfo )
 jsonDecDocInfo =
    (Json.Decode.maybe ("modified" := jsonDecDateTime)) >>= \pmodified ->
    ("included" := Json.Decode.bool) >>= \pincluded ->
-   Json.Decode.succeed {modified = pmodified, included = pincluded}
+   ("imageSize" := Json.Decode.map2 (,) (Json.Decode.index 0 (Json.Decode.int)) (Json.Decode.index 1 (Json.Decode.int))) >>= \pimageSize ->
+   Json.Decode.succeed {modified = pmodified, included = pincluded, imageSize = pimageSize}
 
 jsonEncDocInfo : DocInfo -> Value
 jsonEncDocInfo  val =
    Json.Encode.object
    [ ("modified", (maybeEncode (jsonEncDateTime)) val.modified)
    , ("included", Json.Encode.bool val.included)
+   , ("imageSize", (\(v1,v2) -> Json.Encode.list [(Json.Encode.int) v1,(Json.Encode.int) v2]) val.imageSize)
    ]
 
 

@@ -5,12 +5,12 @@ import Json.Decode as Decode exposing (Decoder)
 import Json.Encode as Encode exposing (Value)
 
 
-
 -- Common type synonyms used in both client/server
+type alias Vec = { x : Float, y : Float }
 
 
 type alias DocName = String
-type alias ObjId = (Int, Int)
+type alias ObjId = Int
 type alias ClientId = Int
 
 type alias DateTime = DateTime.DateTime
@@ -29,13 +29,18 @@ jsonEncDocName = Encode.string
 jsonDecDocName : Decoder DocName
 jsonDecDocName = Decode.string
 
-
 jsonDecObjId : Decoder ObjId
-jsonDecObjId = Decode.map2 (,) (Decode.index 0 Decode.int) (Decode.index 1 Decode.int)
+jsonDecObjId = Decode.int
 
 jsonEncObjId : ObjId -> Value
-jsonEncObjId (a, b) = Encode.list [Encode.int a, Encode.int b]
+jsonEncObjId = Encode.int
 
+
+jsonDecVec : Decoder Vec
+jsonDecVec = Decode.map2 Vec (Decode.index 0 Decode.float) (Decode.index 1 Decode.float)
+
+jsonEncVec : Vec -> Value
+jsonEncVec v = Encode.list [Encode.float v.x, Encode.float v.y]
 
 jsonDecDateTime : Decoder DateTime
 jsonDecDateTime = Decode.string |> Decode.andThen

@@ -5,6 +5,7 @@ module Input exposing (..)
 -- import Html.Attributes exposing (..)
 
 import Vector exposing (..)
+import Common exposing (Vec)
 
 import Keyboard.Key as Key exposing (Key)
 import Keyboard.KeySet as KeySet exposing (KeySet)
@@ -63,19 +64,19 @@ subscriptions f = Sub.batch
   , Window.onMouseDown (MouseDown >> f)
   , Window.onClick (Click >> f)
   , Window.onMouseWheel (MouseWheel >> f)
-  , Window.onMouseMove (MouseMove >> f) 
+  , Window.onMouseMove (MouseMove >> f)
   , Window.onFocus (Focus >> f)
   ]
 
 
 type alias State =
-  { position : Vec2
+  { position : Vec
   , keys : KeySet
   }
 
 init : State
 init =
-  { position  = Vec2 0 0
+  { position  = Vec 0 0
   , keys = KeySet.empty
   }
 

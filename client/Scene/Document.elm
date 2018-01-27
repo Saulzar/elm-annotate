@@ -1,9 +1,8 @@
 module Scene.Document exposing (..)
 
-import Tuple exposing (..)
 import Common exposing (..)
 import Vector as V exposing (..)
-import Types exposing (Document, Edit(..), Object(..))
+import Types exposing (Document, Edit(..), Object(..), Box, Extents)
 
 -- import Util exposing (..)
 import Dict
@@ -38,27 +37,31 @@ modify f i doc = { doc | instances = Dict.update i (Maybe.map f) doc.instances }
 
 maxObject : Document -> Maybe Int
 maxObject doc = List.maximum << List.filterMap List.maximum <|
-  [  (List.map first <| Dict.keys doc.instances)
+  [  (Dict.keys doc.instances)
   ,  (List.filterMap maxEdit doc.undos)
   ,  (List.filterMap maxEdit doc.redos)
   ]
 
 maxEdit : Edit -> Maybe Int
 maxEdit e = case e of
-  Add (i, _) _ -> Just i
-  Delete (i, _) -> Just i
-  Transform ids _ _ -> List.maximum <| List.map first ids
+  Add i _ -> Just i
+  Delete i -> Just i
+  Transform ids _ _ -> List.maximum ids
   Many edits -> List.maximum (List.filterMap maxEdit edits)
 
 
--- toExtents : { -> (Position, Vec2)
+-- toExtents : { -> (Position, Vec)
 -- toExtents b = let scale = V.scale 0.5 (V.sub b.min b.max)
 --   in (V.add b.min scale, scale)
 
-transform : Float -> Vec2 -> Object -> Object
+transformExtents : Float -> Vec -> Extents -> Extents
+transformExtents s v b = { centre = V.add v b.centre, extents = V.scale s b.extents }
+
+transform : Float -> Vec -> Object -> Object
 transform s v obj = case obj of
   ObjPoint p -> ObjPoint {p | position = V.add p.position v, radius = p.radius * s}
-  ObjBox b -> ObjBox {position = V.add b.position v, size = V.scale s b.size}
+  ObjBox b -> b |> toExtents |> transformExtents s v |> toBox |> ObjBox
+
 
 
 

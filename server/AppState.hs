@@ -1,15 +1,12 @@
 module AppState where
 
-import           Control.Applicative
-import           Control.Monad.Reader
-import           Control.Monad.State
-import           Data.SafeCopy
 
-import           Data.Typeable
+import Common
+
+import           Data.SafeCopy
 import           System.FilePath
 
 import qualified Data.Map as M
-import Data.Map (Map)
 
 import Types
 import Control.Lens
@@ -19,8 +16,10 @@ import GHC.Generics
 import Data.Generics.Product.Subtype
 import Data.Time.Clock
 
-import Control.Concurrent.Log
+import Linear.Affine
 
+import Control.Concurrent.Log
+import Data.SafeCopy
 
 data AppState = AppState
   { config :: Config
@@ -32,11 +31,12 @@ data AppState = AppState
 data Command where
   CmdEdit :: DocName -> Edit -> Command
   CmdModified :: DocName -> UTCTime -> Command
-  CmdImages :: [DocName] -> Command
+  CmdImages :: [(DocName, DocInfo)] -> Command
 
-
-$(deriveSafeCopy 0 'base ''Vec2)
+$(deriveSafeCopy 0 'base ''V2)
 $(deriveSafeCopy 0 'base ''Box)
+$(deriveSafeCopy 0 'base ''Extents)
+
 $(deriveSafeCopy 0 'base ''Object)
 $(deriveSafeCopy 0 'base ''Edit)
 $(deriveSafeCopy 0 'base ''Document)
@@ -45,6 +45,7 @@ $(deriveSafeCopy 0 'base ''Config)
 $(deriveSafeCopy 0 'base ''AppState)
 
 $(deriveSafeCopy 0 'base ''Command)
+
 
 
 docInfo :: DocName -> Traversal' AppState DocInfo
@@ -56,12 +57,7 @@ instance Persistable AppState where
 
   update (CmdEdit doc edit) = undefined
   update (CmdModified doc time) =  docInfo doc . #modified .~ Just time
-
-
-  update (CmdImages new) = over #images (M.union new')
-    where
-      new' = M.fromList $ (, emptyInfo) <$> new
-      emptyInfo = DocInfo Nothing False
+  update (CmdImages new) = over #images (M.union (M.fromList new))
 
 
 initialState :: Config -> AppState
@@ -72,13 +68,8 @@ initialState config = AppState
   }
 
 
-updateImages :: [FilePath] -> Log AppState -> STM ()
-updateImages images db = do
-  existing <- view #images <$> readCurrent db
-  let new = filter (not . flip M.member existing) images
-
-  updateLog db (CmdImages new)
-
+lookupDoc :: DocName -> AppState -> (Maybe DocInfo, Maybe Document)
+lookupDoc name AppState{..} = (M.lookup name images, M.lookup name documents)
 
 getDataset :: AppState -> Dataset
 getDataset = upcast

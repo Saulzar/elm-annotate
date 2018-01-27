@@ -3,7 +3,7 @@ port module Input.Window exposing (onMouseDown, onMouseUp, onClick, onMouseMove,
 -- import Process
 -- import Task exposing (Task)
 
-import Vector as V exposing (Vec2, Position, Size)
+import Vector as V exposing (Position, Size)
 import Input.Mouse exposing (..)
 
 import Json.Decode as Json exposing (Value, Decoder, decodeValue)

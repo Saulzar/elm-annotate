@@ -7,7 +7,7 @@ import Json.Decode as Json exposing (Decoder, field, float, int, map2, map3)
 -- import Process
 -- import Task exposing (Task)
 
-import Vector as V exposing (Vec2, Position, Size, v2)
+import Vector as V exposing (Position, Size, vec)
 
 
 type alias Modifiers =
@@ -62,10 +62,10 @@ buttons = { left = False, right = False, middle = False, button4 = False, button
 
 
 decodeClient : Decoder Position
-decodeClient = map2 v2 (field "clientX" float) (field "clientY" float)
+decodeClient = map2 vec (field "clientX" float) (field "clientY" float)
 
 decodePage : Decoder Position
-decodePage = map2 v2 (field "pageX" float) (field "pageY" float)
+decodePage = map2 vec (field "pageX" float) (field "pageY" float)
 
 
 type alias Positions =

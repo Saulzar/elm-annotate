@@ -1,7 +1,7 @@
 module Scene.Settings exposing (..)
 
-import Vector as V exposing (Size, Position, Vec2, Box)
- 
+import Vector as V
+
 
 type alias Settings =
   { brushRadius : Float

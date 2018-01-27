@@ -1,5 +1,6 @@
 module Scene.View exposing (..)
 
+import Types exposing (Box, Extents)
 import Vector exposing(..)
 
 
@@ -11,12 +12,12 @@ import TypedSvg.Attributes exposing (..)
 import Html exposing (..)
 -- import Debug
 
-import Vector as V exposing (Vec2, v2)
+import Vector as V
 
 type alias Geometry = { bounds : Box, size : Size, pan : Position, zoom : Float }
 
 init : Geometry
-init = { zoom = 1, pan = v2 0 0, size = v2 0 0, bounds = Box (v2 0 0) (v2 0 0) }
+init = { zoom = 1, pan = vec 0 0, size = vec 0 0, bounds = Box (vec 0 0) (vec 0 0) }
 
 setBounds : Box -> Geometry -> Geometry
 setBounds b geom = {geom | bounds = b}
@@ -47,17 +48,17 @@ toPage : Geometry -> Position -> Position
 toPage geom local = V.add (pageOffset geom) (V.scale geom.zoom local)
 
 pageOffset : Geometry -> Position
-pageOffset geom = V.add geom.bounds.position (localOffset geom)
+pageOffset geom = V.add geom.bounds.lower (localOffset geom)
 
 localOffset : Geometry -> Position
 localOffset geom =  let
-    centered = V.scale 0.5 (V.sub geom.bounds.size (V.scale geom.zoom geom.size))
+    centered = V.scale 0.5 (V.sub (boxSize geom.bounds) (V.scale geom.zoom geom.size))
       in V.add centered (V.scale geom.zoom geom.pan)
-
+ 
 view : Geometry -> List (Svg msg) -> Html msg
 view geom inner = let
   t = localOffset geom
-  s = geom.bounds.size
+  s = boxSize geom.bounds
     in svg [ version "1.1", width (px s.x), height (px s.y), viewBox 0 0 s.x s.y ]
         [ g [transform [Translate t.x t.y, Scale geom.zoom geom.zoom]]  inner
         ]

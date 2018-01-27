@@ -7,10 +7,7 @@ import TypedSvg.Types as Svg exposing (..)
 import TypedSvg  as Svg exposing (..)
 import TypedSvg.Attributes as Svg exposing (..)
 
---
---
--- import Input exposing (Event(..))
-import Vector as V exposing (Size, Position, Vec2)
+import Vector as V exposing (Size, Position)
 import Image exposing (Image)
 
 import Scene.View as View exposing (Geometry)
@@ -42,7 +39,7 @@ load clientId doc img scene =
     , action      = Inactive
 
     , doc         = doc
-    , nextId      = (nextObj, clientId)
+    , nextId      = nextObj
     , selection   = []
     }
 
@@ -55,7 +52,7 @@ init =
 
   , background = Nothing
   , doc = Doc.init
-  , nextId = (0, 0)
+  , nextId = 0
   , selection = []
   }
 
@@ -72,8 +69,7 @@ modifyDoc : (Document -> Document) -> Scene -> Scene
 modifyDoc f scene  = {scene | doc = f scene.doc}
 
 incId : Scene -> Scene
-incId scene = let incId (object, client) = (object + 1, client) in
-  {scene | nextId = incId scene.nextId}
+incId scene = {scene | nextId = scene.nextId + 1}
 
 applyEdit : Edit -> Scene -> Scene
 applyEdit e = modifyDoc (Doc.applyEdit e) >> incId

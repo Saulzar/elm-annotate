@@ -11,7 +11,8 @@ import Image exposing (Image)
 import Network
 
 import Scene.Types as Scene exposing (Scene, Action, Active(..), Command(..))
-import Types exposing (Dataset, DocInfo, ServerMsg(..), ClientMsg (..), Edit(..), Document)
+
+import Types exposing (Dataset, DocInfo, ServerMsg(..), ClientMsg (..), Edit(..), Document, Box)
 import Common exposing (DocName, ClientId, ObjId)
 
 import Time exposing (Time)
@@ -27,7 +28,7 @@ import Input
 import Scene
 
 import Json.Decode as Json
-import Vector exposing (Position, Box, Size)
+import Vector exposing (Position, Size)
 
 import Util exposing (..)
 import Tuple exposing (..)
@@ -135,7 +136,7 @@ modifyScene : (Scene -> Scene) -> Model -> Model
 modifyScene f model = {model | scene = f model.scene}
 
 handleMessage : ServerMsg -> Model -> (Model, Cmd Msg)
-handleMessage msg model = case msg of
+handleMessage msg model = Debug.log (toString msg) <| case msg of
   ServerHello clientId dataset -> noCmd {model | network = Ready {clientId = clientId}, dataset = dataset}
   _ -> Debug.crash "handleMessage: not implemented"
 
@@ -304,7 +305,7 @@ events model =
 cursorAttribs : Active -> (String, String, String)
 cursorAttribs ma = case ma of
   Inactive      -> ("", "auto", "auto")
-  Active action -> ("cursor_lock", action.cursor, "none")
+  Active action -> ("cursor_lock", "action.cursor", "none")
 
 
 

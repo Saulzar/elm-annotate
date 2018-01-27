@@ -14,7 +14,7 @@ import Scene.View as View
 import Types exposing (..)
 import Common exposing (..)
 
-import Vector as V exposing (Size, Position, Vec2, Box)
+import Vector as V exposing (Size, Position)
 
 import Scene.Types exposing (..)
 
@@ -116,7 +116,7 @@ drawPoints key = rec <| \set pos -> {action
           command (ZoomBrush <| Mouse.zoomBy deltas)
 
         Click b -> when (b == Mouse.Left) <|
-          command (createObject scene (ObjPoint {position = pos, radius = scene.settings.brushRadius}))
+          command (createObject scene  <| ObjPoint {position = pos, radius = scene.settings.brushRadius})
 
         KeyUp k   -> when (k == key) end
         _           -> Ignored
