@@ -16,7 +16,7 @@ import           JavaScript.Object.Internal
 import qualified Data.Set as S
 import Miso hiding (Key)
 
-import Data.Aeson.Types
+import Data.Aeson.Types hiding (defaultOptions)
 import qualified Data.Aeson.Types as A
 
 import Geometry
@@ -97,6 +97,7 @@ fromKeyCode (KeyCode code) = keyCodeLookup code
 wheelDecoder :: Decoder Float
 wheelDecoder = eventDecoder (\o -> o .: "deltaY")
 
+on' = windowOnWithOptions (defaultOptions { preventDefault = True, stopPropagation = True })
 
 subs :: (Event -> action) -> [Sub action model]
 subs f =
@@ -107,6 +108,6 @@ subs f =
   , windowOn "blur"       emptyDecoder   (f . const (Focus False))
   , windowOn "mousedown"  buttonDecoder  (f . MouseDown)
   , windowOn "mouseup"    buttonDecoder  (f . MouseUp)
-  , windowOn "wheel"      wheelDecoder   (f . MouseWheel)
+  , on' "wheel"      wheelDecoder   (f . MouseWheel)
 
   ]

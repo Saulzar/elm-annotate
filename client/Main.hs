@@ -171,7 +171,10 @@ appView model =
         [ div_ [id_ drawingId, tabindex_ 0] (interface model)
         ]
     ] where
-      (cursorClass, cursor, pointerEvents) = cursorAttribs Nothing
+      (mCursor :: Maybe MisoString) = model ^? #scene . Scene._Env . #interaction . traverse . #cursor
+      (cursorClass, cursor, pointerEvents) = case mCursor of
+        Nothing      -> ("", "auto", "auto")
+        Just cursor -> ("cursor_lock", cursor, "none")
 
 
 div' :: MisoString -> [View action] -> View action
@@ -207,7 +210,7 @@ imageBar model@ (Model {..}) =
         [div' "card-body d-flex flex-column"
             [ imageSelect]
         ]
-  where    imageSelect = imageSelector selected $ take 1 $ M.toList (dataset ^. #images)
+  where    imageSelect = imageSelector selected $  M.toList (dataset ^. #images)
 
 
 imageSelector :: Maybe DocName -> [(DocName, DocInfo)] ->  View Action

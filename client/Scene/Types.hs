@@ -10,6 +10,8 @@ import Common
 import Types
 import qualified Input as Input
 
+import Miso.String (MisoString)
+
 import Scene.Viewport (Viewport, toLocal)
 import Scene.Settings (Settings)
 
@@ -32,7 +34,7 @@ data Command
 data Interaction = Interaction
   { update  :: Env -> Input.Event -> [Command]
   , view    :: Env -> View [Command]
-  , cursor  :: String
+  , cursor  :: MisoString
   , pending :: [Edit]
   } deriving (Generic)
 

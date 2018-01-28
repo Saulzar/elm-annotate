@@ -88,7 +88,7 @@ keys env = always <> interacting
 
   where
     interacting = case env ^. #interaction of
-      Nothing -> [(key Key.Control, I.start $ I.drawPoints Key.Control (localMouse env))]
+      Nothing -> [(key Key.Shift, I.start $ I.drawPoints Key.Shift (localMouse env))]
       Just _  -> []
 
     always = [(key Key.Escape, I.endCmd)]
