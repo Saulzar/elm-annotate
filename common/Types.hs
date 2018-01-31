@@ -12,24 +12,24 @@ import qualified Data.Map as M
 import Data.Generics.Product
 import Geometry
 
-newtype ObjId = ObjId { unObj :: (Int, ClientId) } deriving (Show, Ord, Eq, Generic, FromJSON, ToJSON, FromJSONKey, ToJSONKey)
-newtype ClientId = ClientId { unClient :: Int } deriving (Show, Ord, Eq, Enum, Generic, FromJSON, ToJSON, FromJSONKey, ToJSONKey)
-newtype DocName = DocName { unDoc :: String } deriving (Ord, Eq, Generic, FromJSON, ToJSON, FromJSONKey, ToJSONKey)
 
-instance Show DocName where
-  show (DocName d) = d
+type ObjId = Int
+type ClientId = Int
+
+type DocName = Text
+type DateTime = UTCTime
 
 
 data Edit
   = Add ObjId Object
   | Delete ObjId
-  | Transform [ObjId] Float (V2 Float)
+  | Transform [ObjId] Float Vec
   | Many [Edit]
 
   deriving (Generic, Show, Eq)
 
 
-data Object = ObjPoint {position :: (V2 Float), radius :: (V2 Float)} | ObjBox Box deriving (Generic, Show, Eq)
+data Object = ObjPoint {position :: Vec, radius :: Float} | ObjBox Box deriving (Generic, Show, Eq)
 
 data Document = Document
   { undos :: [Edit]
@@ -39,14 +39,14 @@ data Document = Document
 
 
 data DocInfo = DocInfo
-  { modified :: Maybe UTCTime
+  { modified :: Maybe DateTime
   , included :: Bool
-  , imageSize :: Dim
+  , imageSize :: (Int, Int)
   } deriving (Generic, Show, Eq)
 
 
 data Config = Config
-  { extensions :: [String]
+  { extensions :: [Text]
   } deriving (Generic, Show, Eq)
 
 data Dataset = Dataset
@@ -59,15 +59,16 @@ data Dataset = Dataset
 data ServerMsg
   = ServerHello ClientId Dataset
   | ServerDocument DocName Document
-  | ServerOpen (Maybe DocName) ClientId UTCTime
+  | ServerOpen (Maybe DocName) ClientId DateTime
   | ServerEdit DocName Edit
+  | ServerEnd
       deriving (Generic, Show, Eq)
 
 data ClientMsg
   = ClientOpen DocName
   | ClientEdit DocName Edit
+  | ClientNext (Maybe DocName) 
       deriving (Generic, Show, Eq)
-
 
 
 instance FromJSON Edit
@@ -88,7 +89,6 @@ instance ToJSON DocInfo
 instance ToJSON Dataset
 instance ToJSON ServerMsg
 instance ToJSON ClientMsg
-
 
 defaultConfig :: Config
 defaultConfig = Config

@@ -5,8 +5,8 @@ import Common
 import qualified Data.Map as M
 import Types
 
-empty ::  Document
-empty = Document
+emptyDoc ::  Document
+emptyDoc = Document
   { undos = []
   , redos = []
   , instances = M.empty
@@ -25,8 +25,7 @@ maxEdit (Many edits) = maxEdits edits
 
 maximumId :: [ObjId] -> Maybe ObjId
 maximumId [] = Nothing
-maximumId xs = Just $ foldl1 f xs where
-  f (ObjId (o, c)) (ObjId (o', c')) = ObjId (max o o', max c c')
+maximumId xs = Just $ maximum xs
 
 
 maxId :: Document -> Maybe ObjId
@@ -36,34 +35,38 @@ maxId Document{..} = maximumId $ catMaybes
   , maximumId (M.keys instances)
   ]
 
+type Content = Map ObjId Object
 
 applyEdit :: Edit -> Document -> Document
-applyEdit = undefined
+applyEdit e doc = case patchEdit e (doc ^. #instances) of
+  Nothing -> doc
+  Just (inverse, content) -> doc
+    & #instances .~ content
+    & #undos %~ (inverse :)
 
--- runEdit :: Edit -> Document -> Document
--- runEdit edit doc = doc' & #undos %~ (inverse:)
---   where (inverse, doc') = applyEdit edit doc
---
---
--- accumEdits :: Edit -> ([Edit], Document) -> Maybe ([Edit], Document)
--- accumEdits edit (inverses, doc) = (inv : inverses, doc') where
---     (inv, doc') = applyEdit edit doc
---
---
--- transformObj :: Float -> V2 -> Object -> Object
--- transformObj = undefined
---
--- instance Num V2 where
---   negate (V2 x y) = V2 (-x) (-y)
---
--- patchEdit :: Edit -> Map ObjId Object -> Maybe (Edit, Map ObjId Object)
--- patchEdit edit instances =  case edit of
---   Add k object -> return (Delete k, instances & M.insert k object)
---   Delete k     -> case (M.lookup k instances) of
---     Nothing     -> Nothing
---     Just object -> return (Add k object, instances &  M.delete k)
---   Transform ks s v -> return
---     ( Transform ks (1/s) (negate v)
---     , foldr (\k -> over (at k . traverse) (transformObj s v)) doc ks)
---
---   Many edits -> over _1 Many <$> foldr (flip accumEdits) ([], doc) edits
+accumEdits :: Edit -> ([Edit], Content) -> Maybe ([Edit], Content)
+accumEdits edit (inverses, content) = do
+    (inv, content') <- patchEdit edit content
+    return (inv : inverses, content')
+
+
+transformObj :: Float -> Vec -> Object -> Object
+transformObj s t = \case
+  ObjPoint p r -> ObjPoint (p + t) (r * s)
+  ObjBox b     -> ObjBox $ b & boxExtents %~
+    (\Extents{..} -> Extents (centre + t) (extents ^* s))
+
+patchEdit :: Edit -> Content -> Maybe (Edit, Content)
+patchEdit edit content =  case edit of
+  Add k object -> return (Delete k, content & M.insert k object)
+  Delete k     -> do
+    object <- M.lookup k content
+    return (Add k object, content &  M.delete k)
+
+  Transform ks s v -> return
+    ( Transform ks (1/s) (negate v)
+    , foldr (\k -> over (at k . traverse) (transformObj s v)) content ks)
+
+  Many edits ->  do
+    (edits, content') <- foldM (flip accumEdits) ([], content) edits
+    return (Many edits, content')

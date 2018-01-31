@@ -15,5 +15,8 @@ init = Settings { brushWidth = 20 }
 
 
 scaleBrush :: Float -> Settings -> Settings
-scaleBrush delta = #brushWidth %~ clamp (1, 200) . (* factor)
-  where factor = 1 - delta / 500
+scaleBrush delta = #brushWidth %~ clamp (1, 200) . (* zoomBy delta)
+
+
+zoomBy :: Float -> Float
+zoomBy delta = 1 - delta / 500

@@ -15,6 +15,7 @@ import Control.Exception as X
 
 import Control.Monad.IO.Class as X
 
+import Data.Text as X (Text)
 import Data.Functor as X
 import Data.Monoid as X
 import Data.Foldable as X
@@ -29,7 +30,7 @@ import Control.Lens as X
   )
 import Data.Aeson as X (ToJSON(..), FromJSON(..), FromJSONKey(..), ToJSONKey(..), decode, encode)
 
-import Data.List as X (intersperse, filter, zip, zip3, zipWith, zipWith3, lookup, take, drop)
+import Data.List as X (intersperse, filter, zip, zip3, zipWith, zipWith3, lookup, take, drop, elem)
 import Data.Maybe as X (fromMaybe, maybe, catMaybes, Maybe (..), maybeToList)
 import Data.Either as X (either, Either (..))
 

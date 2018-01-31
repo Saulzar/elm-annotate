@@ -10,6 +10,9 @@ import Text.Megaparsec.Char
 import Text.Megaparsec.Char.Lexer (decimal)
 --import Control.Monad.Combinators
 
+import qualified Data.Text as Text
+import System.FilePath
+
 
 defaultInfo :: Dim -> DocInfo
 defaultInfo dim = DocInfo
@@ -45,12 +48,13 @@ parseDim = do
   return (w, h)
 
 
-imageInfo :: FilePath -> IO (Maybe DocInfo)
-imageInfo filename = do
-  (exit, out, _) <- readProcessWithExitCode "identify" [filename] ""
+imageInfo :: FilePath -> DocName -> IO (Maybe DocInfo)
+imageInfo root filename = do
+  (exit, out, _) <- readProcessWithExitCode "identify" [path] ""
   return $ case exit of
     ExitSuccess -> toInfo <$> parseMaybe parseIdentify out
     _           -> Nothing
 
     where
       toInfo (_, _, dim) = defaultInfo dim
+      path = root </> Text.unpack filename

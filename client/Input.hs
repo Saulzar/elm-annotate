@@ -27,6 +27,7 @@ data Event
   = MouseWheel Float
   | MouseDown Button
   | MouseUp Button
+  | Click Button
   | KeyDown Key
   | KeyUp Key
   | MouseMove Position
@@ -83,8 +84,9 @@ eventDecoder f = Decoder {..}
     decoder = withObject "event" f
 
 
+
 clientDecoder :: Decoder Position
-clientDecoder = toVector <$> eventDecoder (\o -> (,) <$> (o .: "clientX") <*> (o .: "clientY"))
+clientDecoder = dimVector <$> eventDecoder (\o -> (,) <$> (o .: "clientX") <*> (o .: "clientY"))
 
 buttonDecoder :: Decoder Button
 buttonDecoder = eventDecoder (\o -> toButton <$> (o .: "button"))
@@ -97,7 +99,9 @@ fromKeyCode (KeyCode code) = keyCodeLookup code
 wheelDecoder :: Decoder Float
 wheelDecoder = eventDecoder (\o -> o .: "deltaY")
 
-on' = windowOnWithOptions (defaultOptions { preventDefault = True, stopPropagation = True })
+windowOn' = windowOnWithOptions (Options { preventDefault = True, stopPropagation = True })
+on' = onWithOptions (Options { preventDefault = True, stopPropagation = True })
+
 
 subs :: (Event -> action) -> [Sub action model]
 subs f =
@@ -108,6 +112,7 @@ subs f =
   , windowOn "blur"       emptyDecoder   (f . const (Focus False))
   , windowOn "mousedown"  buttonDecoder  (f . MouseDown)
   , windowOn "mouseup"    buttonDecoder  (f . MouseUp)
-  , on' "wheel"      wheelDecoder   (f . MouseWheel)
+  , windowOn "click"      buttonDecoder  (f . Click)
+  , windowOn' "wheel"      wheelDecoder   (f . MouseWheel)
 
   ]

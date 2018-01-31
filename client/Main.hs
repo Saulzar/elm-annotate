@@ -41,10 +41,7 @@ data NetworkState = Disconnected | Connected | Ready ClientId deriving (Show, Ge
 data Model = Model
   { dataset :: Dataset
   , network :: NetworkState
-
-  , selected :: Maybe DocName
   , activeTab :: Maybe MisoString
-
   , scene :: Scene.Scene
 
   } deriving (Show, Generic, Eq)
@@ -55,7 +52,6 @@ initialModel :: Model
 initialModel =  Model
   { dataset = Dataset defaultConfig []
   , network = Disconnected
-  , selected = Nothing
   , activeTab = Nothing
   , scene = Scene.init
   }
@@ -83,7 +79,7 @@ start host = startApp App { initialAction = Id, ..} where
 
 
 imageInfo :: DocInfo -> DocName -> Image
-imageInfo info name = Image (info ^. #imageSize) ("images/" <> unDoc name)
+imageInfo info name = Image (info ^. #imageSize) ("images/" <> S.toMisoString name)
 
 openDocument :: DocName -> Document -> ClientId -> Model -> Model
 openDocument name doc clientId model = maybe model open mInfo where
@@ -93,35 +89,39 @@ openDocument name doc clientId model = maybe model open mInfo where
 
 
 
+_currentDoc :: Traversal' Model DocName
+_currentDoc = #scene . Scene._Env . #docName
+
 updateModel :: Action -> Model -> Effect Action Model
-updateModel msg model = Debug.traceShow msg $ handle
+updateModel msg model = handle
     where
       handle = case msg of
         HandleWebSocket ws -> handleNetwork ws
-        SelectDoc name -> (model & #selected .~ Just name)
-           <# (send (ClientOpen name) >> pure Id)
+        SelectDoc name -> model <# (send (ClientOpen name) >> pure Id)
 
         ShowTab maybeTab -> noEff (model & #activeTab .~ maybeTab)
 
         Scene cmds -> foldM runCommand model cmds
 
         Resize dim -> noEff $ model & #scene %~ Scene.resizeView (viewBox dim)
-        Input e    -> do
-          let model' = model & #scene %~ Scene.updateInput e
-          foldM runCommand model' (Scene.interact e (model' ^. #scene))
+        Input e    ->
+          updateInput e <$> foldM runCommand model (Scene.interact e (model ^. #scene))
 
         Id -> noEff model
 
 
-      viewBox dim = Box (V2 0 0) (toVector dim)
+      viewBox dim = Box (V2 0 0) (dimVector dim)
+      updateInput e = #scene %~ Scene.updateInput e
 
         -- (SendMessage msg)    -> model <# do send msg >> pure Id
         --(UpdateMessage m)    -> noEff model { msg = Message m }
 
       runCommand :: Model -> Command -> Effect Action Model
-      runCommand model = \case
-        MakeEdit d e -> model <# (send (ClientEdit d e) >> pure Id)
-        cmd        -> Debug.traceShow cmd $ noEff (model & #scene %~ Scene.runCommand cmd)
+      runCommand model cmd = model' <# toSend where
+          model' = model & #scene %~ Scene.runCommand cmd
+          toSend = case cmd of
+            MakeEdit d e -> send (ClientEdit d e) >> pure Id
+            _ -> pure Id
 
 
       handleNetwork :: WebSocket ServerMsg -> Effect Action Model
@@ -132,12 +132,14 @@ updateModel msg model = Debug.traceShow msg $ handle
 
       handleMessage :: NetworkState -> ServerMsg -> Effect Action Model
       handleMessage Connected (ServerHello clientId dataset)  = model { network = Ready clientId, dataset = dataset}
-        <# (traverse (send . ClientOpen) (model ^. #selected) >> pure Id)
+        <# (const Id <$> case model ^? _currentDoc of
+          Nothing       -> send (ClientNext Nothing)
+          Just selected -> send (ClientOpen selected))
 
       handleMessage (Ready clientId) msg = case msg of
         ServerDocument docName document   -> noEff (openDocument docName document clientId model)
         ServerOpen maybeDoc otherId time  -> noEff model
-        ServerEdit docName edit           -> error "not implemented"
+        ServerEdit docName edit           -> noEff model
 
       handleMessage _ _ = error "message recieved in invalid state."
 
@@ -166,7 +168,7 @@ classes_ = class_ . S.concat . intersperse " "
 
 appView :: Model -> View Action
 appView model =
-  div_ [draggable_ False, style_ [("cursor", cursor)]]
+  div_ attrs
     [ div_ [classes_ ["expand horiz", cursorClass], style_ [("pointer-events", pointerEvents)]]
         [ div_ [id_ drawingId, tabindex_ 0] (interface model)
         ]
@@ -176,6 +178,10 @@ appView model =
         Nothing      -> ("", "auto", "auto")
         Just cursor -> ("cursor_lock", cursor, "none")
 
+      attrs = [ Input.on' "wheel" emptyDecoder (const Id)
+              , draggable_ False
+              , style_ [("cursor", cursor)]
+              ]
 
 div' :: MisoString -> [View action] -> View action
 div' c = div_ [class_ c]
@@ -194,7 +200,7 @@ indicator state = div' "indicator" $ case state of
 interface :: Model -> [View Action]
 interface model@Model{..} =
   [ Scene <$> Scene.view scene
-  , indicator $ network
+  , indicator network
   ] <> makeTabs activeTab [("Images", imageBar model)]
 
 
@@ -210,7 +216,7 @@ imageBar model@ (Model {..}) =
         [div' "card-body d-flex flex-column"
             [ imageSelect]
         ]
-  where    imageSelect = imageSelector selected $  M.toList (dataset ^. #images)
+  where    imageSelect = imageSelector (model ^? _currentDoc) $  M.toList (dataset ^. #images)
 
 
 imageSelector :: Maybe DocName -> [(DocName, DocInfo)] ->  View Action
@@ -223,7 +229,7 @@ imageSelector active images =
     ]
     where
       selectRow (name, info) = tr_ [onClick (SelectDoc name), classList_ [("table-active", active == Just name)]]
-            [ td_ [] [text' (unDoc name)]
+            [ td_ [] [text' name]
             --, td [] (if info.annotated then [FA.edit] else [])
             ]
 

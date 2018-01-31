@@ -46,7 +46,7 @@ instance Show Interaction where
 
 data Image = Image
   { size     :: (Int, Int)
-  , source   :: FilePath
+  , source   :: MisoString
   } deriving (Generic, Show, Eq)
 
 

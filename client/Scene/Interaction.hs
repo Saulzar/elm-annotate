@@ -2,13 +2,17 @@ module Scene.Interaction where
 
 import Common
 import Scene.Types
+import Types
+
 import Scene.Drawing
 
 import qualified Web.KeyCode as Key
 import Scene.Viewport (toLocal)
+import Scene.Settings (zoomBy)
 
 import Input  (Event(..), Button(..))
 import Svg
+import Miso (class_)
 
 
 init :: Interaction
@@ -41,6 +45,11 @@ ignored = []
 start :: Interaction -> Command
 start = Interact . Just
 
+
+createObject :: Env -> Object -> Command
+createObject Env{..} obj = MakeEdit docName (Add nextId obj)
+
+
 pan :: Position -> Interaction
 pan = stateful $ \set pos -> init
   { update = \_ cmd -> case cmd of
@@ -57,15 +66,29 @@ pan = stateful $ \set pos -> init
 
 drawPoints :: Key.Key -> Position -> Interaction
 drawPoints key = stateful $ \set pos -> init
-  { update = \Env{..} cmd -> case cmd of
+  { update = \env@Env{..} -> \case
       MouseMove mouse   -> [set (toLocal viewport mouse)]
       MouseWheel delta  -> [ScaleBrush delta]
-      --
-      -- Click b -> mask (b == LeftButton) $ endWith $
-      --   createObject scene (Point pos ({position = pos, radius = settings ^. #brushWidth}))
+
+      Click b -> whenCmd (b == LeftButton) $
+        [createObject env (ObjPoint pos (settings ^. #brushWidth))]
 
       KeyUp k   -> whenCmd (k == key) end
       _         -> ignored
-    , view = \Env{..} -> circle pos (settings ^. #brushWidth) []
+    , view = \Env{..} -> circle pos (settings ^. #brushWidth) [class_ "brush"]
     , cursor = "none"
     }
+
+
+dragSelected :: Button -> [ObjId] -> Position -> Interaction
+dragSelected button selection origin = stateful dragObjects' (origin, 1)  where
+  dragObjects' set (position, scale) = init
+    { update = \Env {..} -> \case
+          MouseMove mouse   -> [set (toLocal viewport mouse, scale)]
+          MouseWheel delta  -> [set (position, scale * zoomBy delta)]
+          MouseUp b         -> whenCmd (b == button) [MakeEdit docName edits, endCmd]
+          _           -> ignored
+    , cursor = "move"
+    , pending = [edits]
+    } where
+        edits = Transform selection scale (position - origin)

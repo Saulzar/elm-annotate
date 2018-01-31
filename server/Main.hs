@@ -15,6 +15,7 @@ import Options as Opt
 
 import qualified Data.Map as M
 import qualified Data.Set as S
+import qualified Data.Text as Text
 
 import qualified Data.ByteString.Lazy                      as BS
 import Data.ByteString.Lazy (ByteString)
@@ -52,6 +53,8 @@ data Client  = Client
 type Clients = TVar (Map ClientId Client)
 type Documents = TVar (Map DocName [ClientId])
 
+
+
 type LogMsg = String
 
 
@@ -71,7 +74,7 @@ instance Exception Error
 
 
 nextClient :: Map ClientId Client -> ClientId
-nextClient m = fromMaybe (ClientId 0) (succ . fst . fst <$>  M.maxViewWithKey m)
+nextClient m = fromMaybe 0 (succ . fst . fst <$>  M.maxViewWithKey m)
 
 
 sendHello :: Env -> ClientId -> STM ()
@@ -169,7 +172,6 @@ openDocument :: Env -> ClientId -> DocName -> STM ()
 openDocument env@(Env {..}) clientId docName = do
   writeLog env ("opening " <> show clientId <> ", " <> show docName)
 
-  closeDocument env clientId
 
   modifyTVar clients (at' clientId . #document .~ Just docName)
   modifyTVar documents ( M.alter addClient docName)
@@ -197,6 +199,36 @@ makeEdit env@(Env {..}) docName edit = do
     getEditing = fromMaybe [] . M.lookup docName
 
 
+findMin :: Ord a => Set a -> Maybe a
+findMin s
+  | length s == 0 = Nothing
+  | otherwise     = Just (S.elemAt 0 s)
+
+nextCircular :: Ord a => Set a -> a -> Maybe a
+nextCircular s x = S.lookupGT x s' <|> findMin s'
+  where s' = S.delete x s
+
+findNext' :: AppState -> Map DocName [ClientId] -> Maybe DocName -> Maybe DocName
+findNext' AppState{..} docs = \case
+    Nothing      -> findMin editable
+    Just current -> nextCircular editable current
+
+    where
+      editable = S.difference fresh (M.keysSet docs)
+      fresh = M.keysSet (M.filter isFresh images)
+      isFresh = not . view #included
+
+findNext :: Env -> Maybe DocName -> STM (Maybe DocName)
+findNext Env{..} maybeCurrent =
+  findNext' <$> readLog state <*> readTVar documents <*> pure maybeCurrent
+
+clientOpen :: Env -> ClientId -> DocName -> STM ()
+clientOpen env clientId docName = do
+  (mInfo, mDoc) <- lookupDoc docName <$> readLog (env ^. #state)
+  for_ mInfo $ \info -> do
+    openDocument env clientId docName
+    sendClient env clientId (ServerDocument docName (fromMaybe Doc.emptyDoc mDoc))
+
 recieveLoop :: Env -> WS.Connection -> ClientId -> IO ()
 recieveLoop env conn clientId = do
   atomically $ sendHello env clientId
@@ -204,14 +236,14 @@ recieveLoop env conn clientId = do
     req <- tryDecode =<< liftIO (WS.receiveData conn)
     atomically $ writeLog env (show req)
     case req of
-        ClientOpen file -> atomically $ do
-          (mInfo, mDoc) <- lookupDoc file <$> readLog (env ^. #state)
-          forM mInfo $ \info -> do
-            openDocument env clientId file
-            sendClient env clientId (ServerDocument file (fromMaybe Doc.empty mDoc))
+        ClientOpen docName      -> atomically $ clientOpen env clientId docName
+        ClientEdit docName edit -> atomically $ makeEdit env docName edit
 
-        ClientEdit docName edit -> error "not implemented"
-
+        ClientNext current -> atomically $ do
+          maybeDoc <- findNext env current
+          case maybeDoc of
+            Just docName -> clientOpen env clientId docName
+            Nothing      -> sendClient env clientId ServerEnd
 
 
 sendClient :: Env -> ClientId -> T.ServerMsg -> STM ()
@@ -269,8 +301,9 @@ validExtension exts filename = any (\e -> fmap toLower e == ext) exts where
 
 findImages :: Config -> FilePath -> IO [DocName]
 findImages config root = do
-  contents <- listDirectory root
-  return $ DocName <$> filter (validExtension (config ^. #extensions)) contents
+  contents <- fmap fromString <$> listDirectory root
+  return $ fromString <$> filter (validExtension exts) contents
+    where exts = Text.unpack <$> config ^. #extensions
 
 
 -- imageInfo :: FilePath -> IO (Maybe DocInfo)
@@ -292,7 +325,7 @@ findNewImages config root existing = do
   images <- findImages config root
 
   catMaybes <$> (forM (filter (flip M.notMember existing) images) $ \image -> do
-    fmap (image, ) <$> imageInfo (root </> unDoc image))
+    fmap (image, ) <$> imageInfo root image)
 
 
 
