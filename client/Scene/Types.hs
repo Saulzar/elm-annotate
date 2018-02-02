@@ -23,23 +23,26 @@ data Command
   | Pan Position Position
   | Zoom Float Position
   | ScaleBrush Float
-  | MakeEdit DocName Edit
+  | MakeEdit Edit
 
-  | Interact (Maybe Interaction)
+  | Interact Interaction
 
     deriving (Eq, Show, Generic)
 
 
+data EditView = Brush Position deriving (Eq, Show, Generic)
+
 
 data Interaction = Interaction
   { update  :: Env -> Input.Event -> [Command]
-  , view    :: Env -> View [Command]
-  , cursor  :: MisoString
-  , pending :: [Edit]
+  , view    :: Maybe EditView
+  , cursor  :: (MisoString, Bool)
+  , pending :: [Edit] 
   } deriving (Generic)
 
 instance Eq Interaction where
-  (==) i i' = False
+  i == i' =  i ^. #view == i' ^. #view
+          && i ^. #pending == i' ^. #pending
 
 instance Show Interaction where
   show i = "Interaction"
@@ -55,7 +58,7 @@ data Editor = Editor
   , docName   :: DocName
   , nextId    :: ObjId
   , selection :: [ObjId]
-  , interaction :: Maybe Interaction
+  , interaction :: Interaction
   , background :: Image
   } deriving (Generic, Show, Eq)
 
@@ -75,7 +78,7 @@ data Env = Env
   , docName     :: DocName
   , nextId      :: ObjId
   , selection   :: [ObjId]
-  , interaction :: Maybe Interaction
+  , interaction :: Interaction
 
   , background  :: Image
   , input       :: Input.State

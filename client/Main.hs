@@ -5,7 +5,7 @@ import Common
 
 import qualified Data.Map as M
 
-import           Miso
+import           Miso hiding (for_)
 import           Miso.String  (MisoString)
 import qualified Miso.String  as S
 
@@ -13,8 +13,8 @@ import Miso.Subscription.Window
 import Network.URI
 
 import Scene.Types (Image(..), Command(..))
-import qualified Scene as Scene
-import qualified Input as Input
+import qualified Scene
+import qualified Input
 
 import Types
 import qualified Debug.Trace as Debug
@@ -25,8 +25,8 @@ data Action
   = HandleWebSocket (WebSocket ServerMsg)
   | SelectDoc DocName
   | ShowTab (Maybe MisoString)
-  | Input (Input.Event)
-  | Resize (Dim)
+  | Input Input.Event
+  | Resize Dim
 
   | Scene [Command]
   -- | SendMessage ServerMsg
@@ -120,7 +120,11 @@ updateModel msg model = handle
       runCommand model cmd = model' <# toSend where
           model' = model & #scene %~ Scene.runCommand cmd
           toSend = case cmd of
-            MakeEdit d e -> send (ClientEdit d e) >> pure Id
+            MakeEdit e -> do
+               for_ (model ^? _currentDoc) $ \doc ->
+                  send (ClientEdit doc e)
+               pure Id
+
             _ -> pure Id
 
 
@@ -145,10 +149,6 @@ updateModel msg model = handle
 
 
 
-cursorAttribs :: Maybe MisoString -> (MisoString, MisoString, MisoString)
-cursorAttribs ma = case ma of
-  Nothing      -> ("", "auto", "auto")
-  Just cursor -> ("cursor_lock", cursor, "none")
 
 
 
@@ -166,6 +166,7 @@ tabindex_ = intProp "tabindex"
 classes_ :: [MisoString] -> Attribute action
 classes_ = class_ . S.concat . intersperse " "
 
+
 appView :: Model -> View Action
 appView model =
   div_ attrs
@@ -173,10 +174,11 @@ appView model =
         [ div_ [id_ drawingId, tabindex_ 0] (interface model)
         ]
     ] where
-      (mCursor :: Maybe MisoString) = model ^? #scene . Scene._Env . #interaction . traverse . #cursor
+      mCursor = model ^? #scene . Scene._Env . #interaction . #cursor
       (cursorClass, cursor, pointerEvents) = case mCursor of
         Nothing      -> ("", "auto", "auto")
-        Just cursor -> ("cursor_lock", cursor, "none")
+        Just (cursor, True) -> ("cursor_lock", cursor, "none")
+        Just (cursor, False) -> ("", cursor, "auto")
 
       attrs = [ Input.on' "wheel" emptyDecoder (const Id)
               , draggable_ False
