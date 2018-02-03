@@ -11,7 +11,7 @@ import Control.Monad.Reader.Class as X
 import Control.Monad.State.Class as X
 import Control.Monad.Writer.Class as X
 
-import Control.Exception as X
+import Control.Exception  as X (Exception(..), throw, finally)
 
 import Control.Monad.IO.Class as X
 
@@ -23,7 +23,7 @@ import Data.Traversable as X
 
 import Control.Lens as X
   ( (%~), (^.), (^?), (.~), (&)
-  , over
+  , over, view
   , Lens, Lens', Traversal, Traversal'
   , at, _1, _2, _3, _4
   , _Just, _Nothing, _Left, _Right

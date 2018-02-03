@@ -75,13 +75,15 @@ resizeView b = #viewport . #bounds .~ b
 updateInput :: Input.Event -> Scene -> Scene
 updateInput e scene = scene & #input %~ Input.update e
 
+
+
 interact :: Input.Event -> Scene -> [Command]
 interact e scene = case maybeEnv scene of
   Nothing   -> []
-  Just env  ->  interact' env (env ^. #interaction)
+  Just env  -> interact' env (env ^. #interaction . #update)
                 -- <> checkBindings env (keys env) e
     where
-      interact' env Interaction{..} = update env e
+      interact' env update = fromMaybe [] (handle (update env) e)
 
 -- type Binding = (Key.Key, [Key.Key])
 --
@@ -151,7 +153,7 @@ applyPending Env{..} = foldr applyEdit doc pending where
 
 
 
-view :: Scene -> View [Command]
+view :: Scene -> View (Maybe Input.Event)
 view scene = case maybeEnv scene of
   Nothing  -> div_ [] []
   Just env@Env{..} -> div_ [class_ "expand"] $ pure $
@@ -165,13 +167,11 @@ view scene = case maybeEnv scene of
         doc' = applyPending env
 
         drawInteraction env = maybeSvg view (I.drawView env)
-            where view = env ^. #interaction . #view
+            where view = env ^. #interaction . #editView
 
 
 
-
-
-viewObject :: Env -> (ObjId, Object) -> View [Command]
+viewObject :: Env -> (ObjId, Object) -> View (Maybe Input.Event)
 viewObject env@Env{..} (objId, object) = case object of
   ObjPoint p r -> circle p r attrs
   ObjBox _ -> error "not implemented"

@@ -33,15 +33,29 @@ data Command
 data EditView = Brush Position deriving (Eq, Show, Generic)
 
 
+newtype Handler a = Handler { handle :: Input.Event -> Maybe a }
+
+instance Applicative Handler where
+  pure = Handler . const . Just
+  Handler h <*> Handler h' = Handler $ \e -> h e <*> h' e
+
+
+instance Alternative Handler where
+  empty = Handler (const Nothing)
+  Handler h <|> Handler h' = Handler $ \e -> h e <|> h' e
+
+instance Functor Handler where
+  fmap f (Handler h) = Handler $ fmap (fmap f) h
+
 data Interaction = Interaction
-  { update  :: Env -> Input.Event -> [Command]
-  , view    :: Maybe EditView
+  { update  :: Env -> Handler [Command]
+  , editView :: Maybe EditView
   , cursor  :: (MisoString, Bool)
-  , pending :: [Edit] 
+  , pending :: [Edit]
   } deriving (Generic)
 
 instance Eq Interaction where
-  i == i' =  i ^. #view == i' ^. #view
+  i == i' =  i ^. #editView == i' ^. #editView
           && i ^. #pending == i' ^. #pending
 
 instance Show Interaction where

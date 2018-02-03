@@ -18,9 +18,9 @@ import Linear
 
 init :: Interaction
 init = Interaction
-  { update = \env e -> []
+  { update = const empty
   , cursor = ("default", False)
-  , view = Nothing
+  , editView = Nothing
   , pending = []
   }
 
@@ -30,19 +30,18 @@ whenCmd True cmds = cmds
 whenCmd _ _ = mempty
 
 
-until :: (Input.Event -> Maybe Interaction) -> Interaction -> Interaction
-until cond = #update %~ \update env e -> case cond e of
-    Just t  -> [transition t]
-    Nothing -> mapTransition (until cond) <$> update env e
+pendingEdits :: Interaction -> Command
+pendingEdits = MakeEdit . Many . view #pending
 
-untilCommit :: (Input.Event -> Maybe Interaction) -> Interaction -> Interaction
-untilCommit cond interaction = interaction & #update %~ \update env e -> case cond e of
-    Just t  -> [MakeEdit $ Many (interaction ^. #pending), transition t]
-    Nothing -> mapTransition (untilCommit cond) <$> update env e
+until :: Handler Interaction -> Interaction -> Interaction
+until handleEnd interaction = interaction & #update %~ \update env ->
+      fmap toCmd handleEnd <|> fmap wrapCmd (update env) where
 
+    wrapCmd = fmap (mapTransition (until handleEnd))
+    toCmd t = [pendingEdits interaction, transition t]
 
-until' :: Input.Event -> Interaction -> Interaction -> Interaction
-until' e t = until (\e' -> if e == e' then Just t else Nothing)
+-- until' :: Input.Event -> Interaction -> Interaction -> Interaction
+-- until' e t = until (\e' -> if e == e' then Just t else Nothing)
 
 
 mapTransition :: (Interaction -> Interaction) -> Command -> Command
@@ -61,26 +60,70 @@ transition = Interact
 createObject :: Env -> Object -> Command
 createObject Env{..} obj = MakeEdit (Add nextId obj)
 
+handleWheel :: (Float -> a) -> Handler a
+handleWheel f = Handler $ \case
+  MouseWheel delta -> Just (f delta)
+  _ -> Nothing
+
+handleKeyDown :: (Key.Key -> a) -> Handler a
+handleKeyDown f = Handler $ \case
+  KeyDown k -> Just (f k)
+  _ -> Nothing
+
+handleKeyUp :: (Key.Key -> a) -> Handler a
+handleKeyUp f = Handler $ \case
+  KeyUp k -> Just (f k)
+  _ -> Nothing
+
+
+handleMouseMove :: (Position -> a) -> Handler a
+handleMouseMove f = Handler $ \case
+  MouseMove pos -> Just (f pos)
+  _ -> Nothing
+
+handleMouseLocal :: Env -> (Position -> a) -> Handler a
+handleMouseLocal env f = handleMouseMove (f . toLocal (env ^. #viewport))
+
+
+handleEvent :: Input.Event -> a -> Handler a
+handleEvent e a = Handler $ \e' ->
+  if e == e' then Just a else Nothing
+
+whileEvent :: Interaction -> (Input.Event, Input.Event) ->  Interaction -> Handler [Command]
+whileEvent self (start, end) dest = handleEvent start [transition dest'] where
+  dest' = until (handleEvent end self) dest
+
+whileButton :: Interaction -> Button ->  Interaction -> Handler [Command]
+whileButton self b = whileEvent self (MouseDown b, MouseUp b)
+
+whileKey :: Interaction -> Key.Key ->  Interaction -> Handler [Command]
+whileKey self b = whileEvent self (KeyDown b, KeyUp b)
+
+
+
+ -- type Binding = (Key.Key, [Key.Key])
+ --
+ --  handleKeys  :: Env -> [(Binding, Command)] -> Handler [Command]
+ --  handleKeys Env{..} bindings = \case
+  --   Input.KeyDown k   -> maybeToList $ lookup (k, Set.toList (Set.delete k $ input ^. #keys)) bindings
+  --   _           -> []
+
 
 base :: Interaction
 base = init {update = update} where
 
-  update env = \case
-      MouseWheel delta     -> [Zoom delta (localMouse env)]
-      MouseDown LeftButton -> [transition' (MouseUp LeftButton) $ pan (localMouse env)]
-      _           -> ignored
+  update env = handleWheel (\delta -> [Zoom delta (localMouse env)])
+             <|> whileButton' LeftButton (pan (localMouse env))
+             <|> whileKey' Key.Control (drawPoints (localMouse env))
 
-  transition' e = transition . until' e base
-
-
+  whileButton' = whileButton base
+  whileKey' = whileKey base
 
 
 pan :: Position -> Interaction
-pan pos = init
-  { update = \_ cmd -> case cmd of
-      MouseMove mouse  -> [Pan pos mouse]
-      MouseWheel delta -> [Zoom delta pos]
-      _           -> ignored
+pan origin = init
+  { update = const (handleMouseMove (\mouse -> [Pan origin mouse])
+                   <|> handleWheel (\delta -> [Zoom delta origin]))
 
   , cursor = ("move", True)
   }
@@ -89,27 +132,26 @@ pan pos = init
 
 drawPoints ::  Position -> Interaction
 drawPoints pos = init
-    { update = \env@Env{..} -> \case
-        MouseMove mouse   -> [transition $ drawPoints (toLocal viewport mouse)]
-        MouseWheel delta  -> [ScaleBrush delta]
-        Click LeftButton  -> [createObject env (ObjPoint pos (settings ^. #brushWidth))]
+    { update = \env ->
+            handleMouseLocal env (\mouse -> [transition $ drawPoints mouse])
+        <|> handleWheel (\delta -> [ScaleBrush delta])
+        <|> handleEvent (Click LeftButton) [createObject env (ObjPoint pos (env ^. #settings . #brushWidth))]
 
-        _         -> ignored
-      , view = Just (Brush pos)
+      , editView = Just (Brush pos)
       , cursor = ("none", True)
       }
-
-
-dragSelected :: [ObjId] -> Position -> Interaction
-dragSelected selection origin = dragObjects' (origin, 1)  where
-  dragObjects' (position, scale) = init
-    { update = \Env {..} -> \case
-          MouseMove mouse   -> [transition $ dragObjects' (toLocal viewport mouse, scale)]
-          MouseWheel delta  -> [transition $ dragObjects' (position, scale * zoomBy delta)]
-          _           -> ignored
-    , cursor = (if distance position origin > 1.0 then "move" else "default", True)
-    , pending = [Transform selection scale (position - origin)]
-    }
+--
+--
+-- dragSelected :: [ObjId] -> Position -> Interaction
+-- dragSelected selection origin = dragObjects' (origin, 1)  where
+--   dragObjects' (position, scale) = init
+--     { update = \Env {..} -> \case
+--           MouseMove mouse   -> [transition $ dragObjects' (toLocal viewport mouse, scale)]
+--           MouseWheel delta  -> [transition $ dragObjects' (position, scale * zoomBy delta)]
+--           _           -> ignored
+--     , cursor = (if distance position origin > 1.0 then "move" else "default", True)
+--     , pending = [Transform selection scale (position - origin)]
+--     }
 
 drawView :: Env -> EditView -> View [Command]
 drawView Env{..} = \case
