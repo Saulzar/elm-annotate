@@ -15,47 +15,40 @@ import Miso.String (MisoString)
 import Scene.Viewport (Viewport, toLocal)
 import Scene.Settings (Settings)
 
+import Control.Monad.RWS
 
 import Miso (View)
 
-data Command
-  = Select [ObjId]
-  | Pan Position Position
-  | Zoom Float Position
-  | ScaleBrush Float
-  | MakeEdit Edit
+-- data Command
+--   = Select [ObjId]
+--   | Pan Position Position
+--   | Zoom Float Position
+--   | ScaleBrush Float
+--   | MakeEdit Edit
+--
+--   | Interact Interaction
+--
+--     deriving (Eq, Show, Generic)
 
-  | Interact Interaction
-
-    deriving (Eq, Show, Generic)
-
-
-data EditView = Brush Position deriving (Eq, Show, Generic)
-
-
-newtype Handler a = Handler { handle :: Input.Event -> Maybe a }
-
-instance Applicative Handler where
-  pure = Handler . const . Just
-  Handler h <*> Handler h' = Handler $ \e -> h e <*> h' e
+data Decoration = Brush Position deriving (Eq, Show, Generic)
+newtype Handler a = Handler { unHandler :: RWST Input.Event [Edit] Env Maybe a }
+  deriving (Functor, Applicative, Monad, MonadPlus, Alternative
+    , MonadState Env, MonadReader Input.Event, MonadWriter [Edit])
 
 
-instance Alternative Handler where
-  empty = Handler (const Nothing)
-  Handler h <|> Handler h' = Handler $ \e -> h e <|> h' e
+runHandler :: Handler a -> Input.Event -> Env -> (Env, [Edit])
+runHandler (Handler h) e env = fromMaybe (env, []) (execRWST h e env)
 
-instance Functor Handler where
-  fmap f (Handler h) = Handler $ fmap (fmap f) h
 
 data Interaction = Interaction
-  { update  :: Env -> Handler [Command]
-  , editView :: Maybe EditView
-  , cursor  :: (MisoString, Bool)
-  , pending :: [Edit]
+  { update      :: Handler ()
+  , decoration  :: Maybe Decoration
+  , cursor      :: (MisoString, Bool)
+  , pending     :: [Edit]
   } deriving (Generic)
 
 instance Eq Interaction where
-  i == i' =  i ^. #editView == i' ^. #editView
+  i == i' =  i ^. #decoration == i' ^. #decoration
           && i ^. #pending == i' ^. #pending
 
 instance Show Interaction where
@@ -68,8 +61,8 @@ data Image = Image
 
 
 data Editor = Editor
-  { doc       :: Document
-  , docName   :: DocName
+  { document  :: Document
+  , name      :: DocName
   , nextId    :: ObjId
   , selection :: [ObjId]
   , interaction :: Interaction
@@ -88,8 +81,8 @@ data Env = Env
   { settings  :: Settings
   , viewport  :: Viewport
 
-  , doc         :: Document
-  , docName     :: DocName
+  , document  :: Document
+  , name      :: DocName
   , nextId      :: ObjId
   , selection   :: [ObjId]
   , interaction :: Interaction

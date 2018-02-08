@@ -4,6 +4,7 @@ module Input
   ) where
 
 import Common
+import Types (ObjId)
 
 import Miso.Subscription.Window
 import Web.KeyCode hiding (KeyCode)
@@ -16,9 +17,10 @@ import           JavaScript.Object.Internal
 import qualified Data.Set as S
 import Miso hiding (Key)
 
-import Data.Aeson.Types hiding (defaultOptions)
+import Data.Aeson.Types
 import qualified Data.Aeson.Types as A
 
+import Control.Lens (makePrisms)
 import Geometry
 
 import Debug.Trace
@@ -32,6 +34,9 @@ data Event
   | KeyUp Key
   | MouseMove Position
   | Focus Bool
+  | MouseOver ObjId
+  | MouseOut ObjId
+
     deriving (Show, Eq, Ord, Generic)
 
 data Button
@@ -42,25 +47,33 @@ data Button
     deriving (Show, Eq, Ord, Generic)
 
 
+
+
 data State = State
   { keys :: Set Key
   , mouse :: Position
+  , over  :: Maybe ObjId
 
   } deriving (Show, Generic, Eq)
 
+makePrisms ''Event
+makePrisms ''Button
 
 init :: State
 init = State
   { keys  = S.empty
   , mouse = V2 0 0
+  , over = Nothing
   }
 
 
 update :: Event -> State -> State
-update (Focus   _) = #keys .~ S.empty
+update (Focus   _) = (#keys .~ S.empty) . (#over .~ Nothing)
 update (KeyDown k) = #keys %~ S.insert k
 update (KeyUp   k) = #keys %~ S.delete k
 update (MouseMove p) = #mouse .~ p
+update (MouseOver obj) = #over .~ Just obj
+update (MouseOut _) = #over .~ Nothing
 update _ = id
 
 
@@ -74,7 +87,7 @@ toButton n = OtherButton n
 
 
 instance Functor Decoder where
-  fmap f d = d { decoder = \val -> f <$> decoder d val }
+  fmap f d = d { decoder = fmap f . decoder d  }
 
 
 eventDecoder :: (A.Object -> Parser a) -> Decoder a
@@ -110,7 +123,7 @@ subs f =
   , windowOn "keyup"      keycodeDecoder (f . KeyUp . fromKeyCode)
   , windowOn "focus"      emptyDecoder   (f . const (Focus True))
   , windowOn "blur"       emptyDecoder   (f . const (Focus False))
-  , windowOn "mousedown"  buttonDecoder  (f . MouseDown)
+--  , windowOn "mousedown"  buttonDecoder  (f . MouseDown)
   , windowOn "mouseup"    buttonDecoder  (f . MouseUp)
   , windowOn "click"      buttonDecoder  (f . Click)
   , windowOn' "wheel"      wheelDecoder   (f . MouseWheel)

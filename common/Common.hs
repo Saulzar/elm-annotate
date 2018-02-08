@@ -5,6 +5,7 @@ module Common
 
 import Control.Applicative as X
 import Control.Monad as X
+import Control.Monad.Trans as X
 import Control.Category as X
 
 import Control.Monad.Reader.Class as X

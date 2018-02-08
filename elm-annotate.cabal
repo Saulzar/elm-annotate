@@ -40,8 +40,9 @@ executable client
                          GADTs, MultiParamTypeClasses, TypeApplications, OverloadedStrings, OverloadedLists,
                          ScopedTypeVariables, LambdaCase, DeriveGeneric, DeriveDataTypeable,
                          DataKinds, RankNTypes, OverloadedLabels,  TemplateHaskell, QuasiQuotes,
-                         TypeFamilies, GeneralizedNewtypeDeriving, StandaloneDeriving, TupleSections,
-                         RecordWildCards, TypeOperators, NoMonomorphismRestriction, PatternSynonyms, NoImplicitPrelude
+                         TypeFamilies, TupleSections,
+                         RecordWildCards, TypeOperators, NoMonomorphismRestriction, PatternSynonyms, NoImplicitPrelude,
+                         DeriveFunctor, GeneralizedNewtypeDeriving, StandaloneDeriving
     build-depends:       base >=4.9 && <5,
                          aeson, mtl, containers, cmdargs, lens, generic-lens, generic-lens-labels, elm-annotate,
                          miso >= 0.11.0.0, network-uri, linear, keycode, ghcjs-base

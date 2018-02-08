@@ -28,6 +28,12 @@ data Edit
 
   deriving (Generic, Show, Eq)
 
+instance Monoid Edit where
+  mempty = Many []
+  mappend (Many []) e = e
+  mappend e (Many []) = e
+  mappend e e' = Many [e, e']
+
 
 data Object = ObjPoint {position :: Vec, radius :: Float} | ObjBox Box deriving (Generic, Show, Eq)
 
@@ -67,7 +73,7 @@ data ServerMsg
 data ClientMsg
   = ClientOpen DocName
   | ClientEdit DocName Edit
-  | ClientNext (Maybe DocName) 
+  | ClientNext (Maybe DocName)
       deriving (Generic, Show, Eq)
 
 

@@ -7,21 +7,26 @@ import Types
 import Scene.Drawing
 
 import qualified Web.KeyCode as Key
-import Scene.Viewport (toLocal)
-import Scene.Settings (zoomBy)
+import Scene.Viewport (toLocal, zoomView, panView)
+import Scene.Settings (zoomBy, scaleBrush)
 
-import Input  (Event(..), Button(..))
+import Document (applyEdit)
+
+import Input hiding (init, update)
 import Svg
 import Miso (class_, View)
 
+import qualified Data.Set as S
+import Control.Lens (assign, (.=),  (%=), preview)
 import Linear
+
 
 init :: Interaction
 init = Interaction
-  { update = const empty
+  { update = mzero
   , cursor = ("default", False)
-  , editView = Nothing
-  , pending = []
+  , decoration = Nothing
+  , pending = mempty
   }
 
 
@@ -29,130 +34,188 @@ whenCmd :: Monoid m => Bool -> m -> m
 whenCmd True cmds = cmds
 whenCmd _ _ = mempty
 
+_pending = #interaction . #pending
 
-pendingEdits :: Interaction -> Command
-pendingEdits = MakeEdit . Many . view #pending
 
-until :: Handler Interaction -> Interaction -> Interaction
-until handleEnd interaction = interaction & #update %~ \update env ->
-      fmap toCmd handleEnd <|> fmap wrapCmd (update env) where
 
-    wrapCmd = fmap (mapTransition (until handleEnd))
-    toCmd t = [pendingEdits interaction, transition t]
+getCurrent :: Handler Interaction
+getCurrent = gets (view #interaction)
+
+-- until :: (Handler Interaction -> Interaction) -> Handler Interaction
+-- until f = do
+--   current <- getCurrent
+--
+--
+--       fmap toCmd handleEnd <|> fmap wrapCmd (update env) where
+--
+--     wrapCmd = fmap (mapTransition (until handleEnd))
+--     toCmd t = [pendingEdits interaction, transition t]
 
 -- until' :: Input.Event -> Interaction -> Interaction -> Interaction
 -- until' e t = until (\e' -> if e == e' then Just t else Nothing)
 
 
-mapTransition :: (Interaction -> Interaction) -> Command -> Command
-mapTransition f = \case
-  Interact i -> Interact (f i)
-  cmd        -> cmd
+-- mapTransition :: (Interaction -> Interaction) -> Command -> Command
+-- mapTransition f = \case
+--   Interact i -> Interact (f i)
+--   cmd        -> cmd
 
+commitPending :: Handler ()
+commitPending = gets (view _pending) >>= traverse_ makeEdit
 
-ignored :: [Command]
-ignored = []
+transition :: Interaction -> Handler ()
+transition = assign #interaction
 
-transition :: Interaction -> Command
-transition = Interact
-
-
-createObject :: Env -> Object -> Command
-createObject Env{..} obj = MakeEdit (Add nextId obj)
-
-handleWheel :: (Float -> a) -> Handler a
-handleWheel f = Handler $ \case
-  MouseWheel delta -> Just (f delta)
-  _ -> Nothing
-
-handleKeyDown :: (Key.Key -> a) -> Handler a
-handleKeyDown f = Handler $ \case
-  KeyDown k -> Just (f k)
-  _ -> Nothing
-
-handleKeyUp :: (Key.Key -> a) -> Handler a
-handleKeyUp f = Handler $ \case
-  KeyUp k -> Just (f k)
-  _ -> Nothing
-
-
-handleMouseMove :: (Position -> a) -> Handler a
-handleMouseMove f = Handler $ \case
-  MouseMove pos -> Just (f pos)
-  _ -> Nothing
-
-handleMouseLocal :: Env -> (Position -> a) -> Handler a
-handleMouseLocal env f = handleMouseMove (f . toLocal (env ^. #viewport))
-
-
-handleEvent :: Input.Event -> a -> Handler a
-handleEvent e a = Handler $ \e' ->
-  if e == e' then Just a else Nothing
-
-whileEvent :: Interaction -> (Input.Event, Input.Event) ->  Interaction -> Handler [Command]
-whileEvent self (start, end) dest = handleEvent start [transition dest'] where
-  dest' = until (handleEvent end self) dest
-
-whileButton :: Interaction -> Button ->  Interaction -> Handler [Command]
-whileButton self b = whileEvent self (MouseDown b, MouseUp b)
-
-whileKey :: Interaction -> Key.Key ->  Interaction -> Handler [Command]
-whileKey self b = whileEvent self (KeyDown b, KeyUp b)
+makeEdit :: Edit -> Handler ()
+makeEdit edit = do
+  #document %= applyEdit edit
+  tell [edit]
 
 
 
- -- type Binding = (Key.Key, [Key.Key])
- --
- --  handleKeys  :: Env -> [(Binding, Command)] -> Handler [Command]
- --  handleKeys Env{..} bindings = \case
-  --   Input.KeyDown k   -> maybeToList $ lookup (k, Set.toList (Set.delete k $ input ^. #keys)) bindings
-  --   _           -> []
+
+getId :: Handler ObjId
+getId = do
+  i <- gets (view #nextId)
+  #nextId %= succ
+  return i
+
+createObject :: Object -> Handler ObjId
+createObject obj = do
+  i <- getId
+  i <$ makeEdit (Add i obj)
+
+
+matchBy :: (Input.Event -> Bool) -> Handler ()
+matchBy f = ask >>= guard . f
+
+matches :: (Input.Event -> Maybe a) -> Handler a
+matches f = asks f >>= Handler . lift
+
+match :: Traversal' Input.Event a -> Handler a
+match t = matches (preview t)
+
+
+
+handleWheel = match _MouseWheel
+handleMouseMove = match _MouseMove
+
+handleMouseDown b = matchBy (== MouseDown b)
+handleMouseUp b = matchBy (== MouseUp b)
+
+
+handleClick b = matchBy (== Click b)
+
+
+handleMouseLocal :: Handler Position
+handleMouseLocal = do
+  vp <- gets (view #viewport)
+  toLocal vp <$> handleMouseMove
+
+until :: Handler () -> (Handler () -> Interaction) -> Handler ()
+until cond action = do
+   current <- getCurrent
+   transition (action $ cond >> commitPending >> transition current)
+
+while :: (Handler () -> Interaction) -> (Handler (), Handler ()) -> Handler ()
+while action (start, end) = start >> until end action
+
+
+whileButton :: Button -> (Handler () -> Interaction) -> Handler ()
+whileButton b action = while action (handleMouseDown b, handleMouseUp b)
+
+whileKey :: Key -> (Handler () -> Interaction) -> Handler ()
+whileKey k action = while action (matchBy (== KeyDown k), matchBy (== KeyUp k))
+
+mouseOver :: Handler ObjId
+mouseOver = gets (view (#input . #over)) >>= Handler . lift
+
+isKeyDown :: Key -> Handler Bool
+isKeyDown k = gets (S.member k . view (#input . #keys))
+
+keyDown :: Key -> Handler ()
+keyDown k = isKeyDown k >>= guard
+
+mouseDownOn :: Button -> Handler ObjId
+mouseDownOn b = handleMouseDown b >> mouseOver
 
 
 base :: Interaction
-base = init {update = update} where
+base = init { update = update } where
+  update = do
+    pos <- gets localMouse
+    do delta <- handleWheel
+       #viewport %= zoomView delta pos
+     <|> whileKey Key.Control (drawPoints pos)
+     <|> mouseSelect pos
 
-  update env = handleWheel (\delta -> [Zoom delta (localMouse env)])
-             <|> whileButton' LeftButton (pan (localMouse env))
-             <|> whileKey' Key.Control (drawPoints (localMouse env))
-
-  whileButton' = whileButton base
-  whileKey' = whileKey base
-
-
-pan :: Position -> Interaction
-pan origin = init
-  { update = const (handleMouseMove (\mouse -> [Pan origin mouse])
-                   <|> handleWheel (\delta -> [Zoom delta origin]))
-
-  , cursor = ("move", True)
-  }
+     <|> (do handleMouseDown LeftButton
+             #selection .= []
+             until (handleMouseUp LeftButton) (pan pos))
 
 
+ordNub = S.toList . S.fromList
 
-drawPoints ::  Position -> Interaction
-drawPoints pos = init
-    { update = \env ->
-            handleMouseLocal env (\mouse -> [transition $ drawPoints mouse])
-        <|> handleWheel (\delta -> [ScaleBrush delta])
-        <|> handleEvent (Click LeftButton) [createObject env (ObjPoint pos (env ^. #settings . #brushWidth))]
+mouseSelect :: Position -> Handler ()
+mouseSelect pos =  do
+  objId <- mouseDownOn LeftButton
+  shift <- isKeyDown Key.Shift
 
-      , editView = Just (Brush pos)
-      , cursor = ("none", True)
-      }
+  selection <- gets (view #selection)
+  let selection' = if shift then ordNub (objId:selection) else [objId]
+
+  #selection .= selection'
+  until (handleMouseUp LeftButton) $
+    dragObjects selection' pos
+
+  --            <|> whileButton' LeftButton (pan (localMouse env))
+  --            <|> whileKey' Key.Control (drawPoints (localMouse env))
+  --
+  -- whileButton' = whileButton base
+  -- whileKey' = whileKey base
+
 --
---
--- dragSelected :: [ObjId] -> Position -> Interaction
--- dragSelected selection origin = dragObjects' (origin, 1)  where
---   dragObjects' (position, scale) = init
---     { update = \Env {..} -> \case
---           MouseMove mouse   -> [transition $ dragObjects' (toLocal viewport mouse, scale)]
---           MouseWheel delta  -> [transition $ dragObjects' (position, scale * zoomBy delta)]
---           _           -> ignored
---     , cursor = (if distance position origin > 1.0 then "move" else "default", True)
---     , pending = [Transform selection scale (position - origin)]
---     }
+pan :: Position -> Handler () -> Interaction
+pan origin handleEnd = init {update = update, cursor = ("move", True)} where
+  update = handleEnd
+    <|> do pos <- handleMouseMove
+           #viewport %= panView origin pos
+    <|> do delta <- handleWheel
+           #viewport %= zoomView delta origin
 
-drawView :: Env -> EditView -> View [Command]
-drawView Env{..} = \case
+
+drawPoints :: Position -> Handler () -> Interaction
+drawPoints pos handleEnd = init
+  { update = update
+  , cursor = ("none", True)
+  , decoration = Just (Brush pos)
+  } where
+
+    update = handleEnd
+      <|> do pos' <- handleMouseLocal
+             transition $ drawPoints pos' handleEnd
+      <|> do delta <- handleWheel
+             #settings %= scaleBrush delta
+      <|> do handleClick LeftButton
+             pos <- gets localMouse
+             width <- gets (view (#settings . #brushWidth))
+             void $ createObject (ObjPoint pos width)
+
+
+dragObjects :: [ObjId] -> Position -> Handler () -> Interaction
+dragObjects selection origin handleEnd = dragObjects' (origin, 1)  where
+  dragObjects' (pos, scale) = init
+    { update = update
+    , cursor = (if distance pos origin > 1.0 then "move" else "default", True)
+    , pending = [Transform selection scale (pos - origin)]
+    } where
+      update = handleEnd
+        <|> do pos' <- handleMouseLocal
+               transition $ dragObjects' (pos', scale)
+        <|> do delta <- handleWheel
+               transition $ dragObjects' (pos, scale * zoomBy delta)
+
+
+renderDecoration :: Env -> Decoration -> View Input.Event
+renderDecoration Env{..} = \case
    Brush pos -> circle pos (settings ^. #brushWidth) [class_ "brush"]

@@ -1,12 +1,11 @@
 module Scene
   ( module Scene
   , Scene(..)
-  , Action(..)
   ) where
 
 import Common
 
-import Miso (View, Attribute, on, onWithOptions, div_, class_, classList_, Options(..))
+import Miso (View, Attribute, on, onWithOptions, div_, class_, classList_, Options(..), style_, emptyDecoder)
 import qualified Miso.String as S
 
 import qualified Scene.Settings as Settings
@@ -32,19 +31,9 @@ import Types
 import Scene.Types
 import Svg
 
-
 import Miso.Html.Property (textProp)
 
 -- import Debug.Trace
-
-data Action
-  = Resize Box
-  | Run Command
-  | Input Input.Event
-    deriving (Show, Eq, Generic)
-
-
-
 
 init :: Scene
 init = Scene
@@ -55,11 +44,11 @@ init = Scene
   }
 
 makeEditor :: Image -> (DocName, Document) -> ClientId -> Editor
-makeEditor background (docName, doc) clientId = Editor {..} where
+makeEditor background (name, document) clientId = Editor {..} where
     nextId     = i
     selection  = []
     interaction = I.base
-    i = succ $ fromMaybe 0 (maxId doc)
+    i = succ $ fromMaybe 0 (maxId document)
 
 
 
@@ -77,13 +66,13 @@ updateInput e scene = scene & #input %~ Input.update e
 
 
 
-interact :: Input.Event -> Scene -> [Command]
-interact e scene = case maybeEnv scene of
-  Nothing   -> []
+interact :: Input.Event -> Scene -> (Scene, [Edit])
+interact e scene = case maybeEnv (updateInput e scene) of
+  Nothing   -> (scene, [])
   Just env  -> interact' env (env ^. #interaction . #update)
                 -- <> checkBindings env (keys env) e
     where
-      interact' env update = fromMaybe [] (handle (update env) e)
+      interact' env update = over _1 toScene $ runHandler update e env
 
 -- type Binding = (Key.Key, [Key.Key])
 --
@@ -107,18 +96,6 @@ interact e scene = case maybeEnv scene of
 -- checkBindings Env{..} bindings = \case
 --   Input.KeyDown k   -> maybeToList $ lookup (k, Set.toList (Set.delete k $ input ^. #keys)) bindings
 --   _           -> []
-
-
-runCommand :: Command -> Scene -> Scene
-runCommand cmd = over _Env $ case cmd of
-   Select ids        -> #selection .~ ids
-   Pan pos page      -> #viewport %~ Viewport.panView pos page
-   Zoom amount pos   -> #viewport %~ Viewport.zoomView amount pos
-
-   ScaleBrush amount -> #settings %~ Settings.scaleBrush amount
-   MakeEdit edit -> (#doc %~ applyEdit edit) . (#nextId %~ succ)
-
-   Interact i -> #interaction .~ i
 
 
 
@@ -147,31 +124,37 @@ maybeSvg :: Maybe a -> (a -> View action) -> View action
 maybeSvg ma f = maybe (g_ [] []) f ma
 
 applyPending :: Env -> Document
-applyPending Env{..} = foldr applyEdit doc pending where
+applyPending Env{..} = foldr applyEdit document pending where
   pending = fromMaybe [] (interaction ^? #pending)
 
 
 
-
-view :: Scene -> View (Maybe Input.Event)
-view scene = case maybeEnv scene of
+render :: Scene -> View Input.Event
+render scene = case maybeEnv scene of
   Nothing  -> div_ [] []
-  Just env@Env{..} -> div_ [class_ "expand"] $ pure $
-    Viewport.view (scene ^. #viewport)
-      [ svgImage background
-      , drawInteraction env
-      , g_ [] (viewObject env <$> M.toList (doc' ^. #instances))
-      ]
+  Just env -> renderEnv env
 
-      where
-        doc' = applyPending env
+renderEnv env@Env{..} = div_ attrs $ pure $
+  Viewport.render viewport
+    [ svgImage background
+    , renderInteraction env
+    , g_ [] (viewObject env <$> M.toList (document' ^. #instances))
+    ]
 
-        drawInteraction env = maybeSvg view (I.drawView env)
-            where view = env ^. #interaction . #editView
+    where
+      document' = applyPending env
+
+      renderInteraction env = maybeSvg d (I.renderDecoration env)
+          where d = env ^. #interaction . #decoration
+
+      attrs = [
+          class_ "expand"
+          , style_ [("pointer-events", "auto"), ("cursor", interaction ^. #cursor . _1)]
+          , on "mousedown" Input.buttonDecoder Input.MouseDown
+        ]
 
 
-
-viewObject :: Env -> (ObjId, Object) -> View (Maybe Input.Event)
+viewObject :: Env -> (ObjId, Object) -> View Input.Event
 viewObject env@Env{..} (objId, object) = case object of
   ObjPoint p r -> circle p r attrs
   ObjBox _ -> error "not implemented"
@@ -179,7 +162,9 @@ viewObject env@Env{..} (objId, object) = case object of
   where
     attrs =
       [ classList_[ ("object", True), ("selected", elem objId selection)]
-      -- , Input.on' "mousedown" Input.buttonDecoder (\b -> if b == LeftButton then actions else [])
+      , on "mouseover" emptyDecoder (const (Input.MouseOver objId))
+      , on "mouseout" emptyDecoder (const (Input.MouseOut objId))
+      --, on "click" Input.buttonDecoder (\b -> if b == LeftButton then actions else [])
       ]
 
     -- actions =

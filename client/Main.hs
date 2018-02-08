@@ -12,7 +12,7 @@ import qualified Miso.String  as S
 import Miso.Subscription.Window
 import Network.URI
 
-import Scene.Types (Image(..), Command(..))
+import Scene.Types (Image(..))
 import qualified Scene
 import qualified Input
 
@@ -28,7 +28,6 @@ data Action
   | Input Input.Event
   | Resize Dim
 
-  | Scene [Command]
   -- | SendMessage ServerMsg
   -- | UpdateMessage MisoString
   | Id deriving (Eq, Show, Generic)
@@ -90,7 +89,7 @@ openDocument name doc clientId model = maybe model open mInfo where
 
 
 _currentDoc :: Traversal' Model DocName
-_currentDoc = #scene . Scene._Env . #docName
+_currentDoc = #scene . Scene._Env . #name
 
 updateModel :: Action -> Model -> Effect Action Model
 updateModel msg model = handle
@@ -101,11 +100,10 @@ updateModel msg model = handle
 
         ShowTab maybeTab -> noEff (model & #activeTab .~ maybeTab)
 
-        Scene cmds -> foldM runCommand model cmds
-
         Resize dim -> noEff $ model & #scene %~ Scene.resizeView (viewBox dim)
-        Input e    ->
-          updateInput e <$> foldM runCommand model (Scene.interact e (model ^. #scene))
+        Input e    -> (model & #scene .~ scene') <#
+          (traverse_ (sendEdit model) edits >> pure Id)
+            where (scene', edits) = Scene.interact e (model ^. #scene)
 
         Id -> noEff model
 
@@ -116,16 +114,9 @@ updateModel msg model = handle
         -- (SendMessage msg)    -> model <# do send msg >> pure Id
         --(UpdateMessage m)    -> noEff model { msg = Message m }
 
-      runCommand :: Model -> Command -> Effect Action Model
-      runCommand model cmd = model' <# toSend where
-          model' = model & #scene %~ Scene.runCommand cmd
-          toSend = case cmd of
-            MakeEdit e -> do
-               for_ (model ^? _currentDoc) $ \doc ->
-                  send (ClientEdit doc e)
-               pure Id
-
-            _ -> pure Id
+      sendEdit :: Model -> Edit -> IO ()
+      sendEdit model edit  =
+          for_ (model ^? _currentDoc) $ \doc -> send (ClientEdit doc edit)
 
 
       handleNetwork :: WebSocket ServerMsg -> Effect Action Model
@@ -201,7 +192,7 @@ indicator state = div' "indicator" $ case state of
 
 interface :: Model -> [View Action]
 interface model@Model{..} =
-  [ Scene <$> Scene.view scene
+  [ Input <$> Scene.render scene
   , indicator network
   ] <> makeTabs activeTab [("Images", imageBar model)]
 
@@ -242,7 +233,7 @@ imageSelector active images =
 
 makeTabs :: Maybe MisoString -> [(MisoString, View Action)] -> [View Action]
 makeTabs active tabs = [div' "tabs" [tabButtons active (fst <$> tabs)]] <> (pane <$> tabs)
-  where pane (name, inner) = div_ [classes_ ["sidebar"], hidden_ (active /= Just name)]  [inner]
+  where pane (name, inner) = div_ [classes_ ["sidebar"]]  [inner | active == Just name]
 
 tabButtons :: Maybe MisoString -> [MisoString] -> View Action
 tabButtons active options = nav_ [class_ "nav nav-pills bg-light rounded"] (tab <$> options)

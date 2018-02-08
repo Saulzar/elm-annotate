@@ -56,8 +56,8 @@ localOffset Viewport{..} = pan ^* zoom + 0.5 *^ (boxSize bounds - zoom *^ size)
 
 
 
-view :: Viewport -> [View action] -> View action
-view v@Viewport{..} inner = svg_ [ version_ "1.1", class_ "expand" ]
+render :: Viewport -> [View action] -> View action
+render v@Viewport{..} inner = svg_ [ version_ "1.1", class_ "expand" ]
   [ g_ [transform_ [Translate tx ty, Scale zoom zoom]] inner ]
       where
           (V2 w h) = boxSize bounds
