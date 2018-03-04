@@ -21,19 +21,21 @@ import Linear.Affine
 import Control.Concurrent.Log
 import Data.SafeCopy
 
-import Document (emptyDoc, applyEdit)
+import Document (emptyDoc, applyEdit, applyCmd)
 
 data AppState = AppState
   { config :: Config
   , images :: Map DocName DocInfo
   , documents :: Map DocName Document
-  } deriving (Show, Generic)
+  } deriving (Show, Eq, Generic)
 
 
 data Command where
-  CmdEdit :: DocName -> Edit -> Command
+  CmdDoc :: DocName -> DocCmd -> Command
+  CmdCategory :: DocName -> ImageCat -> Command
   CmdModified :: DocName -> UTCTime -> Command
   CmdImages :: [(DocName, DocInfo)] -> Command
+    deriving (Show, Eq, Generic)
 
 $(deriveSafeCopy 0 'base ''V2)
 $(deriveSafeCopy 0 'base ''Box)
@@ -41,6 +43,8 @@ $(deriveSafeCopy 0 'base ''Extents)
 
 $(deriveSafeCopy 0 'base ''Object)
 $(deriveSafeCopy 0 'base ''Edit)
+$(deriveSafeCopy 0 'base ''DocCmd)
+$(deriveSafeCopy 0 'base ''ImageCat)
 $(deriveSafeCopy 0 'base ''Document)
 $(deriveSafeCopy 0 'base ''DocInfo)
 $(deriveSafeCopy 0 'base ''Config)
@@ -57,11 +61,13 @@ docInfo doc = #images . at doc . traverse
 instance Persistable AppState where
   type Update AppState = Command
 
-  update (CmdEdit doc edit) = over (#documents . at doc) $ \maybeDoc ->
-      Just $ applyEdit edit (fromMaybe emptyDoc maybeDoc)
+  update (CmdDoc doc cmd) = over (#documents . at doc) $ \maybeDoc ->
+      Just $ applyCmd cmd (fromMaybe emptyDoc maybeDoc)
 
   update (CmdModified doc time) =  docInfo doc . #modified .~ Just time
   update (CmdImages new) = over #images (M.union (M.fromList new))
+  update (CmdCategory doc cat) = docInfo doc . #category .~ cat
+
 
 
 initialState :: Config -> AppState

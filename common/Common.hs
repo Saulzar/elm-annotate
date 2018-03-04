@@ -8,9 +8,9 @@ import Control.Monad as X
 import Control.Monad.Trans as X
 import Control.Category as X
 
-import Control.Monad.Reader.Class as X
-import Control.Monad.State.Class as X
-import Control.Monad.Writer.Class as X
+import Control.Monad.Reader.Class as X (MonadReader (..), asks)
+import Control.Monad.State.Class as X (MonadState(..), gets)
+import Control.Monad.Writer.Class as X (MonadWriter (..))
 
 import Control.Exception  as X (Exception(..), throw, finally)
 
@@ -32,8 +32,8 @@ import Control.Lens as X
 import Data.Aeson as X (ToJSON(..), FromJSON(..), FromJSONKey(..), ToJSONKey(..), decode, encode)
 
 import Data.List as X (intersperse, filter, zip, zip3, zipWith, zipWith3, lookup, take, drop, elem)
-import Data.Maybe as X (fromMaybe, maybe, catMaybes, Maybe (..), maybeToList)
-import Data.Either as X (either, Either (..))
+import Data.Maybe as X (fromMaybe, maybe, catMaybes, Maybe (..), maybeToList, isJust, isNothing)
+import Data.Either as X (either, Either (..), isLeft, isRight)
 
 import Data.Int as X
 import Data.Word as X
@@ -54,7 +54,7 @@ import Prelude as X (
   Real(..), RealFloat(..), Fractional(..), Floating(..), Bounded(..),
   Integer, Char, Float, Int, Double, String, FilePath, IO,
   curry, uncurry, flip, const, fst, snd, fromIntegral,
-  ($), undefined, error, subtract)
+  ($), undefined, error, subtract, print, putStr, putStrLn)
 
 import Data.String as X (IsString(..))
 import Data.Time.Clock as X

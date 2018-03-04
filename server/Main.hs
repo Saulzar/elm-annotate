@@ -187,13 +187,13 @@ openDocument env@(Env {..}) clientId docName = do
         Nothing -> Just [clientId]
 
 
-makeEdit :: Env -> DocName -> Edit -> STM ()
-makeEdit env@(Env {..}) docName edit = do
-  updateLog state (CmdEdit docName edit)
+modifyDoc :: Env -> DocName -> DocCmd -> STM ()
+modifyDoc env@(Env {..}) docName cmd = do
+  updateLog state (CmdDoc docName cmd)
 
   clients <- getEditing <$> readTVar documents
   for_ clients $ \clientId ->
-    sendClient env clientId (ServerEdit docName edit)
+    sendClient env clientId (ServerCmd docName cmd)
 
   where
     getEditing = fromMaybe [] . M.lookup docName
@@ -214,9 +214,8 @@ findNext' AppState{..} docs = \case
     Just current -> nextCircular editable current
 
     where
-      editable = S.difference fresh (M.keysSet docs)
-      fresh = M.keysSet (M.filter isFresh images)
-      isFresh = not . view #included
+      editable = M.keysSet (M.filter isFresh images)
+      isFresh = (== New) . view #category
 
 findNext :: Env -> Maybe DocName -> STM (Maybe DocName)
 findNext Env{..} maybeCurrent =
@@ -237,14 +236,21 @@ recieveLoop env conn clientId = do
     atomically $ writeLog env (show req)
     case req of
         ClientOpen docName      -> atomically $ clientOpen env clientId docName
-        ClientEdit docName edit -> atomically $ makeEdit env docName edit
+        ClientCmd docName cmd -> atomically $ modifyDoc env docName cmd
 
-        ClientNext current -> atomically $ do
-          maybeDoc <- findNext env current
-          case maybeDoc of
-            Just docName -> clientOpen env clientId docName
-            Nothing      -> sendClient env clientId ServerEnd
+        ClientSubmit docName cat -> atomically $ do
+          updateLog (env ^. #state) (CmdCategory docName cat)
+          nextImage env clientId (Just docName)
 
+        ClientNext current -> atomically $ nextImage env clientId current
+
+
+nextImage :: Env -> ClientId -> Maybe DocName -> STM ()
+nextImage env clientId current = do
+  maybeDoc <- findNext env current
+  case maybeDoc of
+    Just docName -> clientOpen env clientId docName
+    Nothing      -> sendClient env clientId ServerEnd
 
 sendClient :: Env -> ClientId -> T.ServerMsg -> STM ()
 sendClient env clientId msg = void $ do

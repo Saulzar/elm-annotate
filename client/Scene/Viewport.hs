@@ -4,7 +4,7 @@ import Common
 import Types
 import Control.Lens hiding (zoom)
 
-import Miso (View, class_)
+import Miso (View, class_, Attribute)
 import qualified Miso.String as S
 import Miso.String (MisoString)
 
@@ -56,8 +56,8 @@ localOffset Viewport{..} = pan ^* zoom + 0.5 *^ (boxSize bounds - zoom *^ size)
 
 
 
-render :: Viewport -> [View action] -> View action
-render v@Viewport{..} inner = svg_ [ version_ "1.1", class_ "expand" ]
+render :: Viewport -> [Attribute action] -> [View action] -> View action
+render v@Viewport{..} attrs inner = svg_ (version_ "1.1" :  attrs)
   [ g_ [transform_ [Translate tx ty, Scale zoom zoom]] inner ]
       where
           (V2 w h) = boxSize bounds

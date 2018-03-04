@@ -52,7 +52,7 @@ data Button
 data State = State
   { keys :: Set Key
   , mouse :: Position
-  , over  :: Maybe ObjId
+  , hover  :: Maybe ObjId
 
   } deriving (Show, Generic, Eq)
 
@@ -63,17 +63,17 @@ init :: State
 init = State
   { keys  = S.empty
   , mouse = V2 0 0
-  , over = Nothing
+  , hover = Nothing
   }
 
 
 update :: Event -> State -> State
-update (Focus   _) = (#keys .~ S.empty) . (#over .~ Nothing)
+update (Focus   _) = (#keys .~ S.empty) . (#hover .~ Nothing)
 update (KeyDown k) = #keys %~ S.insert k
 update (KeyUp   k) = #keys %~ S.delete k
 update (MouseMove p) = #mouse .~ p
-update (MouseOver obj) = #over .~ Just obj
-update (MouseOut _) = #over .~ Nothing
+update (MouseOver obj) = #hover .~ Just obj
+update (MouseOut _) = #hover .~ Nothing
 update _ = id
 
 
@@ -119,8 +119,8 @@ on' = onWithOptions (Options { preventDefault = True, stopPropagation = True })
 subs :: (Event -> action) -> [Sub action model]
 subs f =
   [ windowOn "mousemove"  clientDecoder  (f . MouseMove)
-  , windowOn "keydown"    keycodeDecoder (f . KeyDown . fromKeyCode)
-  , windowOn "keyup"      keycodeDecoder (f . KeyUp . fromKeyCode)
+  , windowOn' "keydown"    keycodeDecoder (f . KeyDown . fromKeyCode)
+  , windowOn' "keyup"      keycodeDecoder (f . KeyUp . fromKeyCode)
   , windowOn "focus"      emptyDecoder   (f . const (Focus True))
   , windowOn "blur"       emptyDecoder   (f . const (Focus False))
 --  , windowOn "mousedown"  buttonDecoder  (f . MouseDown)

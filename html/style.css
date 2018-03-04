@@ -3,14 +3,14 @@ html, body {
     overflow:hidden;
 }
 
+
+
 * {
   -webkit-user-drag:none;
   user-drag: none;
 
   -moz-user-select:none;
   user-select:none;
-
-  cursor:default;
 }
 
 
@@ -32,12 +32,13 @@ html, body {
   position: absolute;
 }
 
+.cursor_lock {
+  pointer-events:none;
+}
 
 .cursor_lock * {
   cursor:inherit !important;
 }
-
-
 
 
 .expand {
@@ -97,13 +98,33 @@ html, body {
   display: inline-block;
 }
 
+.imagebar {
+  bottom: 5px;
+  left : 5px;
+
+  width: calc(100vw - 10px);
+}
+
 .sidebar {
   top : 50px;
   left: 5px;
 
-  height: calc(100vh - 60px);
+  height: calc(100vh - 120px);
 }
 
-.imagebar {
+
+.submit {
+  bottom: 5px;
+  right: 5px;
+}
+
+.imageselect {
   width: 300px
+}
+
+.dropup > .dropdown-menu {
+  position:absolute;
+  transform:translate(0px, -100%);
+  top:0px;
+  right:0px;
 }

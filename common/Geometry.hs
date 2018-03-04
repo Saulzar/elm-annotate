@@ -33,7 +33,7 @@ centroid ps = sum ps / fromIntegral (length ps)
 boxExtents :: Simple Iso Box Extents
 boxExtents = iso toExtents fromExtents where
   toExtents Box{..}       = Extents (centroid [lower, upper]) ((upper - lower) ^* 0.5)
-  fromExtents Extents{..} = Box (centre + extents) (centre - extents)
+  fromExtents Extents{..} = Box (centre - extents) (centre + extents)
 
 
 type Position = V2 Float

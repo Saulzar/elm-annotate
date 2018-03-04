@@ -37,12 +37,32 @@ maxId Document{..} = maximumId $ catMaybes
 
 type Content = Map ObjId Object
 
+
+applyCmd :: DocCmd -> Document -> Document
+applyCmd DocUndo doc = case doc ^. #undos of
+  (x : xs) -> doc & applyUndo x & #undos .~ xs
+  _        -> doc
+applyCmd DocRedo doc = case doc ^. #redos of
+  (x : xs) -> doc & applyRedo x & #redos .~ xs
+  _        -> doc
+
+applyCmd (DocEdit e) doc = applyEdit e doc
+
 applyEdit :: Edit -> Document -> Document
-applyEdit e doc = case patchEdit e (doc ^. #instances) of
+applyEdit e = applyEdit' e (\inverse -> (#undos %~ (inverse :)) . (#redos .~ mempty))
+
+applyUndo :: Edit -> Document -> Document
+applyUndo e = applyEdit' e (\inverse -> #redos %~ (inverse :))
+
+applyRedo :: Edit -> Document -> Document
+applyRedo e = applyEdit' e (\inverse -> #undos %~ (inverse :))
+
+applyEdit' :: Edit -> (Edit -> Document -> Document) -> Document -> Document
+applyEdit' e f doc = case patchEdit e (doc ^. #instances) of
   Nothing -> doc
   Just (inverse, content) -> doc
     & #instances .~ content
-    & #undos %~ (inverse :)
+    & f inverse
 
 accumEdits :: Edit -> ([Edit], Content) -> Maybe ([Edit], Content)
 accumEdits edit (inverses, content) = do

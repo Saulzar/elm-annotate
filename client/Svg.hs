@@ -49,6 +49,7 @@ r_ = lengthProp "r"
 
 
 circle_ = S.circle_
+rect_ = S.rect_
 
 g_ = S.g_
 svg_ = S.svg_

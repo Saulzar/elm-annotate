@@ -17,7 +17,7 @@ import System.FilePath
 defaultInfo :: Dim -> DocInfo
 defaultInfo dim = DocInfo
   { modified = Nothing
-  , included = False
+  , category = New
   , imageSize = dim
   }
 

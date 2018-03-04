@@ -16,6 +16,7 @@ import Scene.Viewport (Viewport, toLocal)
 import Scene.Settings (Settings)
 
 import Control.Monad.RWS
+import Control.Monad.Reader
 
 import Miso (View)
 
@@ -31,13 +32,27 @@ import Miso (View)
 --     deriving (Eq, Show, Generic)
 
 data Decoration = Brush Position deriving (Eq, Show, Generic)
-newtype Handler a = Handler { unHandler :: RWST Input.Event [Edit] Env Maybe a }
+newtype Handler a = Handler { unHandler :: RWST (Input.Event, HandlerStack) [DocCmd] Env Maybe a }
   deriving (Functor, Applicative, Monad, MonadPlus, Alternative
-    , MonadState Env, MonadReader Input.Event, MonadWriter [Edit])
+    , MonadState Env, MonadReader (Input.Event, HandlerStack), MonadWriter [DocCmd])
 
+type HandlerStack = (Handler () -> Handler ())
 
-runHandler :: Handler a -> Input.Event -> Env -> (Env, [Edit])
-runHandler (Handler h) e env = fromMaybe (env, []) (execRWST h e env)
+newtype Cond a = Cond { unCond :: ReaderT (Env, Input.Event) Maybe a }
+  deriving (Functor, Applicative, Monad, MonadPlus, Alternative, MonadReader (Env, Input.Event))
+
+type Cond' = Cond ()
+
+cond :: Cond a -> Handler a
+cond (Cond m) = do
+  e <- liftM2 (,) get (asks fst)
+  Handler $ lift (runReaderT m e)
+
+cond_ :: Cond' -> Handler ()
+cond_ = void . cond
+
+runHandler :: Handler a -> Input.Event -> Env -> (Env, [DocCmd])
+runHandler (Handler h) e env = fromMaybe (env, []) (execRWST h (e, id) env)
 
 
 data Interaction = Interaction
@@ -50,6 +65,7 @@ data Interaction = Interaction
 instance Eq Interaction where
   i == i' =  i ^. #decoration == i' ^. #decoration
           && i ^. #pending == i' ^. #pending
+          && i ^. #cursor == i' ^. #cursor
 
 instance Show Interaction where
   show i = "Interaction"

@@ -66,7 +66,7 @@ updateInput e scene = scene & #input %~ Input.update e
 
 
 
-interact :: Input.Event -> Scene -> (Scene, [Edit])
+interact :: Input.Event -> Scene -> (Scene, [DocCmd])
 interact e scene = case maybeEnv (updateInput e scene) of
   Nothing   -> (scene, [])
   Just env  -> interact' env (env ^. #interaction . #update)
@@ -74,7 +74,8 @@ interact e scene = case maybeEnv (updateInput e scene) of
     where
       interact' env update = over _1 toScene $ runHandler update e env
 
--- type Binding = (Key.Key, [Key.Key])
+
+
 --
 -- keys :: Env -> [(Binding, Command)]
 -- keys env@Env{..} = always <> notInteracting
@@ -135,7 +136,7 @@ render scene = case maybeEnv scene of
   Just env -> renderEnv env
 
 renderEnv env@Env{..} = div_ attrs $ pure $
-  Viewport.render viewport
+  Viewport.render viewport [class_ "expand"]
     [ svgImage background
     , renderInteraction env
     , g_ [] (viewObject env <$> M.toList (document' ^. #instances))
@@ -147,17 +148,18 @@ renderEnv env@Env{..} = div_ attrs $ pure $
       renderInteraction env = maybeSvg d (I.renderDecoration env)
           where d = env ^. #interaction . #decoration
 
-      attrs = [
-          class_ "expand"
-          , style_ [("pointer-events", "auto"), ("cursor", interaction ^. #cursor . _1)]
-          , on "mousedown" Input.buttonDecoder Input.MouseDown
+      attrs =
+        [ class_ "expand"
+        , style_ [("pointer-events", "auto")]
+        , on "mousedown" Input.buttonDecoder Input.MouseDown
         ]
+
 
 
 viewObject :: Env -> (ObjId, Object) -> View Input.Event
 viewObject env@Env{..} (objId, object) = case object of
   ObjPoint p r -> circle p r attrs
-  ObjBox _ -> error "not implemented"
+  ObjBox b     -> box b attrs
 
   where
     attrs =
