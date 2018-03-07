@@ -23,8 +23,8 @@ data DocCmd = DocEdit Edit | DocUndo | DocRedo
   deriving (Show, Eq, Generic)
 
 data Edit
-  = Add ObjId Object
-  | Delete ObjId
+  = Add [(ObjId, Object)]
+  | Delete [ObjId]
   | Transform [ObjId] Float Vec
   | Many [Edit]
   -- | Undo
@@ -67,10 +67,10 @@ data Dataset = Dataset
   } deriving (Generic, Show, Eq)
 
 
-
 data ServerMsg
   = ServerHello ClientId Dataset
-  | ServerDocument DocName Document
+  | ServerUpdateInfo DocName DocInfo
+  | ServerDocument DocName DocInfo Document
   | ServerOpen (Maybe DocName) ClientId DateTime
   | ServerCmd DocName DocCmd
   | ServerEnd

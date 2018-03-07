@@ -10,7 +10,7 @@ import qualified Web.KeyCode as Key
 import Scene.Viewport (toLocal, zoomView, panView)
 import Scene.Settings (zoomBy, scaleBrush)
 
-import Document (applyEdit, applyCmd)
+import Document (applyEdit, applyCmd')
 
 import Input hiding (init, update)
 import Svg
@@ -74,8 +74,19 @@ transition' = assign #interaction
 
 runCommand :: DocCmd -> Handler ()
 runCommand cmd = do
-  #document %= applyCmd cmd
+  doc <- gets (view #document)
+  forM_ (applyCmd' cmd doc) $ \((edit, _), doc') -> do
+    #document .= doc'
+    updateEdit edit
   tell [cmd]
+
+updateEdit :: Edit -> Handler ()
+updateEdit = \case
+  Add objs          -> #selection .= (fst <$> objs)
+  Transform ids _ _ -> #selection .= ids
+  Many edits -> mapM_ updateEdit edits
+  _ -> return ()
+
 
 makeEdit :: Edit -> Handler ()
 makeEdit edit = runCommand (DocEdit edit)
@@ -91,7 +102,7 @@ getId = do
 createObject :: Object -> Handler ObjId
 createObject obj = do
   i <- getId
-  i <$ makeEdit (Add i obj)
+  i <$ makeEdit (Add [(i, obj)])
 
 
 event :: Cond Input.Event
@@ -218,7 +229,7 @@ base = action update where
 
   delete = do
     selected <- cond hasSelection
-    makeEdit (Many (fmap Delete selected))
+    makeEdit (Delete selected)
     #selection .= []
 
   keys = join $ cond (keyBinding bindings)
@@ -245,9 +256,8 @@ addSelection obj objs  = ordNub (obj:objs)
 mouseSelect :: Position -> Handler ()
 mouseSelect pos = do
   objId <- cond (mouseDownOn LeftButton)
-
-  (cond_ (keyDown Key.Shift) >> #selection %= addSelection objId)
-    <|> #selection .= [objId]
+  (cond_ (keysHeld [Key.Shift]) >> #selection %= addSelection objId)
+      <|> #selection .= [objId]
 
   env <- get
   until (mouseUp LeftButton) $
@@ -294,8 +304,8 @@ drawBoxes = action update & #cursor .~ ("crosshair", True) where
 drawBox :: ObjId -> Position -> Interaction
 drawBox i origin = drawBox' origin where
   drawBox' pos = action update
-    & #cursor   .~ ("wait", True)
-    & #pending  .~ [Add i (ObjBox $ makeBox origin pos)]
+    & #cursor   .~ ("crosshair", True)
+    & #pending  .~ [Add [(i, ObjBox $ makeBox origin pos)]]
 
   update = cond mouseLocal >>= transition . drawBox'
   makeBox (V2 x y) (V2 x' y') = Box (V2 (min x x') (min y y')) (V2 (max x x') (max y y'))

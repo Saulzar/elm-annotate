@@ -153,11 +153,17 @@ clientDoc clientId = at' clientId . #document . traverse
 
 
 closeDocument :: Env -> ClientId -> STM ()
-closeDocument (Env {..}) clientId  = (^? clientDoc clientId) <$> readTVar clients >>= traverse_ withDoc
+closeDocument env@(Env {..}) clientId  = (^? clientDoc clientId) <$> readTVar clients >>= traverse_ withDoc
   where
     withDoc docName = do
+        writeLog env ("closing " <> show clientId <> ", " <> show docName)
+
         refs <- M.lookup docName <$> readTVar documents
         modifyTVar documents (M.update removeClient docName)
+
+        mInfo <- fst . lookupDoc docName <$> readLog state
+        forM_ mInfo $ \info ->
+          broadcast env (ServerUpdateInfo docName info)
 
     removeClient cs = case (filter (/= clientId) cs) of
         []  -> Nothing
@@ -166,30 +172,32 @@ closeDocument (Env {..}) clientId  = (^? clientDoc clientId) <$> readTVar client
         --   (#documents . at' doc ^?) <$> readLog state >>= traverse_ (\doc -> do
         --     writeTChan docWriter (DocFlush docName doc))
 
+ordNub = S.toList . S.fromList
 
 
 openDocument :: Env -> ClientId -> DocName -> STM ()
 openDocument env@(Env {..}) clientId docName = do
-  writeLog env ("opening " <> show clientId <> ", " <> show docName)
+  closeDocument env clientId
 
+  writeLog env ("opening " <> show clientId <> ", " <> show docName)
 
   modifyTVar clients (at' clientId . #document .~ Just docName)
   modifyTVar documents ( M.alter addClient docName)
 
   time <- unsafeIOToSTM getCurrentTime
-
-  updateLog state (CmdModified docName time)
   broadcast env (ServerOpen (Just docName) clientId time)
 
     where
       addClient = \case
-        Just cs -> Just (clientId:cs)
+        Just cs -> Just $ ordNub (clientId:cs)
         Nothing -> Just [clientId]
 
 
 modifyDoc :: Env -> DocName -> DocCmd -> STM ()
 modifyDoc env@(Env {..}) docName cmd = do
-  updateLog state (CmdDoc docName cmd)
+
+  time <- unsafeIOToSTM getCurrentTime
+  updateLog state (CmdDoc docName cmd time)
 
   clients <- getEditing <$> readTVar documents
   for_ clients $ \clientId ->
@@ -226,14 +234,14 @@ clientOpen env clientId docName = do
   (mInfo, mDoc) <- lookupDoc docName <$> readLog (env ^. #state)
   for_ mInfo $ \info -> do
     openDocument env clientId docName
-    sendClient env clientId (ServerDocument docName (fromMaybe Doc.emptyDoc mDoc))
+    sendClient env clientId (ServerDocument docName info (fromMaybe Doc.emptyDoc mDoc))
 
 recieveLoop :: Env -> WS.Connection -> ClientId -> IO ()
 recieveLoop env conn clientId = do
   atomically $ sendHello env clientId
   forever $ do
     req <- tryDecode =<< liftIO (WS.receiveData conn)
-    atomically $ writeLog env (show req)
+    atomically $ writeLog env (show clientId <> " <- " <> show req)
     case req of
         ClientOpen docName      -> atomically $ clientOpen env clientId docName
         ClientCmd docName cmd -> atomically $ modifyDoc env docName cmd
@@ -254,6 +262,8 @@ nextImage env clientId current = do
 
 sendClient :: Env -> ClientId -> T.ServerMsg -> STM ()
 sendClient env clientId msg = void $ do
+  writeLog env (show clientId <> " -> " <> show msg)
+
   withClient (env ^. #clients) clientId $ \Client {..} ->
     writeTChan connection (ClientSend msg)
 
@@ -261,6 +271,8 @@ sendClient env clientId msg = void $ do
 
 broadcast :: Env -> T.ServerMsg -> STM ()
 broadcast env msg = do
+  writeLog env ("* -> " <> show msg)
+
   clients <- readTVar (env ^. #clients)
   for_ clients $ \Client {..} ->
     writeTChan connection (ClientSend msg)

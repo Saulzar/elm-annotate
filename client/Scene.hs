@@ -125,9 +125,9 @@ maybeSvg :: Maybe a -> (a -> View action) -> View action
 maybeSvg ma f = maybe (g_ [] []) f ma
 
 applyPending :: Env -> Document
-applyPending Env{..} = foldr applyEdit document pending where
+applyPending Env{..} = foldr apply document pending where
   pending = fromMaybe [] (interaction ^? #pending)
-
+  apply e doc = maybe doc snd (applyEdit e doc)
 
 
 render :: Scene -> View Input.Event

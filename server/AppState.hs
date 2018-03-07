@@ -31,7 +31,7 @@ data AppState = AppState
 
 
 data Command where
-  CmdDoc :: DocName -> DocCmd -> Command
+  CmdDoc :: DocName -> DocCmd -> UTCTime -> Command
   CmdCategory :: DocName -> ImageCat -> Command
   CmdModified :: DocName -> UTCTime -> Command
   CmdImages :: [(DocName, DocInfo)] -> Command
@@ -58,13 +58,14 @@ docInfo :: DocName -> Traversal' AppState DocInfo
 docInfo doc = #images . at doc . traverse
 
 
+updateModified doc time = docInfo doc . #modified .~ Just time
+updateDoc doc cmd = over (#documents . at doc) $ \maybeDoc ->
+    Just $ applyCmd cmd (fromMaybe emptyDoc maybeDoc)
+
 instance Persistable AppState where
   type Update AppState = Command
 
-  update (CmdDoc doc cmd) = over (#documents . at doc) $ \maybeDoc ->
-      Just $ applyCmd cmd (fromMaybe emptyDoc maybeDoc)
-
-  update (CmdModified doc time) =  docInfo doc . #modified .~ Just time
+  update (CmdDoc doc cmd time) = updateModified doc time . updateDoc doc cmd
   update (CmdImages new) = over #images (M.union (M.fromList new))
   update (CmdCategory doc cat) = docInfo doc . #category .~ cat
 

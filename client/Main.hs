@@ -6,13 +6,15 @@ import Common
 import qualified Data.Map as M
 import qualified Data.Text as T
 
-import           Miso hiding (for_)
+import           Miso hiding (for_, at)
 import           Miso.String  (MisoString)
 import qualified Miso.String  as S
 
 import Miso.Subscription.Window
 import Miso.Subscription.History
 import Network.URI
+
+import Control.Concurrent
 
 import Scene.Types (Image(..))
 import qualified Scene
@@ -24,12 +26,16 @@ import Types
 import qualified Debug.Trace as Debug
 
 import Control.Lens (makePrisms, matching)
+import Data.JSString.Int (decimal)
+
+import Data.Time.Format.Human (humanReadableTime')
 
 data Popup = SubmitMenu deriving (Eq, Ord, Enum, Show)
 
 data Action
   = HandleWebSocket (WebSocket ServerMsg)
   | SelectDoc MisoString
+  | Timer UTCTime
   | ShowTab (Maybe MisoString)
   | Input Input.Event
   | Resize Dim
@@ -47,28 +53,30 @@ deriving instance Show a => Show (WebSocket a)
 data NetworkState = Disconnected | Connected | Ready ClientId deriving (Show, Generic, Eq)
 
 
-
-
 data Model = Model
-  { dataset :: Dataset
-  , network :: NetworkState
+  { dataset   :: Dataset
+  , network   :: NetworkState
   , activeTab :: Maybe MisoString
-  , scene :: Scene.Scene
-  , popup :: Maybe Popup
-  , selected :: Maybe DocName
+  , scene     :: Scene.Scene
+  , popup     :: Maybe Popup
+  , selected  :: Maybe DocName
+
+  , time :: UTCTime
 
   } deriving (Show, Generic, Eq)
 
 
 
-initialModel :: Model
-initialModel =  Model
+initialModel :: UTCTime -> Model
+initialModel t =  Model
   { dataset = Dataset defaultConfig []
   , network = Disconnected
   , activeTab = Nothing
   , scene = Scene.init
   , popup = Nothing
   , selected = Nothing
+  , time = t
+
   }
 
 foreign import javascript unsafe "$r = window.location.hostname;"
@@ -84,27 +92,37 @@ getURIHref = do
     Nothing  -> fail $ "Could not parse URI from window.location: " <> href
     Just uri -> return uri
 
+every :: Int -> IO action -> Sub action Model
+every microSeconds action getm sink =
+  void . forkIO . forever $ do
+    threadDelay microSeconds
+    action >>= sink
 
 
 main :: IO ()
 main = do
   uri <- getURIHref
   let host = maybe "" uriRegName (uriAuthority uri)
-  start $ if null host then "localhost" else host
+  t <- getCurrentTime
+  start t $ if null host then "localhost" else host
 
-start host = startApp App { initialAction = Id, ..} where
-  model   = initialModel
+start t host = startApp App { initialAction = Id, ..} where
+  model   = initialModel t
   events  = defaultEvents <> [("wheel", False)]
   url = "ws://" <> host <> ":3000/ws"
   subs    =
     [ websocketSub (URL (S.pack url)) protocols HandleWebSocket
     , windowSub Resize
     , uriSub (SelectDoc . fromString . drop 1 . uriFragment)
+    , every second (Timer <$> getCurrentTime)
+
     ] <> Input.subs Input
   update  = updateModel
   view    = appView
   protocols = Protocols [ ]
   mountPoint = Nothing
+
+  second = 1000000
 
 
 
@@ -112,13 +130,10 @@ start host = startApp App { initialAction = Id, ..} where
 imageInfo :: DocInfo -> DocName -> Image
 imageInfo info name = Image (info ^. #imageSize) ("images/" <> S.toMisoString name)
 
-openDocument :: DocName -> Document -> ClientId -> Model -> Model
-openDocument name doc clientId model = maybe model open mInfo where
-    mInfo     = M.lookup name (model ^. #dataset . #images)
-    open info = model
+openDocument :: DocName -> DocInfo -> Document -> ClientId -> Model -> Model
+openDocument name info doc clientId model = model
       & #scene %~ Scene.setEditor editor
-
-      where editor = Scene.makeEditor (imageInfo info name) (name, doc) clientId
+    where editor = Scene.makeEditor (imageInfo info name) (name, doc) clientId
 
 
 _currentDoc :: Traversal' Model DocName
@@ -134,11 +149,14 @@ updateModel :: Action -> Model -> Effect Action Model
 updateModel msg model = handle where
   handle = case msg of
     HandleWebSocket ws -> handleNetwork ws
-    SelectDoc name -> (model & #selected .~ Just doc) <# do
-      when (isReady model) $
-        send (ClientOpen doc)
+    SelectDoc name -> (model & #selected .~ mDoc) <# do
+      forM_ mDoc $ \doc ->
+        when (isReady model && model ^. #selected /= Just doc) $
+          send (ClientOpen doc)
       return Id
-        where doc = fromString $ S.unpack name
+        where mDoc = if S.null name
+              then Nothing
+              else Just $ fromString $ S.unpack name
 
     ShowTab maybeTab -> noEff (model & #activeTab .~ maybeTab)
 
@@ -149,6 +167,8 @@ updateModel msg model = handle where
 
     ShowPopup p   -> noEff $ model & #popup .~ Just p
     CancelPopup   -> noEff $ model & #popup .~ Nothing
+
+    Timer t -> noEff $ model & #time .~ t
 
     Submit cat -> case (model ^? _currentDoc, isReady model) of
       (Just doc, True) -> model <# (send (ClientSubmit doc cat) >> return Id)
@@ -191,12 +211,15 @@ updateModel msg model = handle where
       Just doc -> send (ClientOpen doc))
 
   handleMessage (Ready clientId) msg = case msg of
-    ServerDocument docName document   -> openDocument docName document clientId model <# do
+    ServerDocument docName info document   -> openDocument docName info document clientId model <# do
       uri <- getURIHref
       let frag = "#" <> T.unpack docName
       when (uriFragment uri /= frag) $
         pushURI (uri {uriFragment = frag})
       return Id
+
+    ServerUpdateInfo docName info -> noEff $
+      model & #dataset . #images . at docName .~ Just info
 
     ServerOpen maybeDoc otherId time  -> noEff model
     ServerCmd docName edit           -> noEff model
@@ -266,7 +289,7 @@ indicator state = div' "indicator" $ case state of
 
 submitMenu :: Model -> View Action
 submitMenu model = div' "submit"
-  [ dropupSplit (model ^. #popup == Just SubmitMenu) SubmitMenu (Submit Train, "Submit")
+  [ dropupSplit (model ^. #popup == Just SubmitMenu) SubmitMenu (Submit Train, "Submit training")
       [ MenuItem (Submit Test, "For testing")
       , MenuItem (Submit Hold, "Hold image")
       ]
@@ -293,7 +316,7 @@ imageSelect model@(Model {..}) =
         [div' "card-body d-flex flex-column"
             [ imageSelect]
         ]
-  where    imageSelect = imageSelector (model ^. #selected) $  M.toList (dataset ^. #images)
+  where    imageSelect = imageSelector (model ^. #selected) (model ^. #time) $  M.toList (dataset ^. #images)
 
 imageBar :: Model -> View Action
 imageBar model = nav_ [class_ "nav navbar navbar-expand-lg bg-light rounded"]
@@ -340,25 +363,32 @@ menu shown items = div_ [class_ ("dropdown-menu " <> mBool shown "show")] (link 
     link (MenuItem (action, str)) = a_ [class_ "dropdown-item", onClick action ] [text str]
     link Divider = div_ [class_ "dropdown-divider"] []
 
+showMiso = S.toMisoString . show
 
-imageSelector :: Maybe DocName -> [(DocName, DocInfo)] ->  View Action
-imageSelector active images =
+imageSelector :: Maybe DocName -> UTCTime ->  [(DocName, DocInfo)] ->  View Action
+imageSelector active currentTime images =
   div_ [class_ "scroll"]
-    [ table_ [class_ "table table-sm"]
-        [ thead_ [] [tr_ [] (heading <$> ["Filename"])]
+    [ table_ [class_ "table table-hover table-sm"]
+        [ thead_ [] [tr_ [] (heading <$> ["File", "Size", "Status", "Modified"])]
         , tbody_ [] (selectRow . over _1 S.toMisoString <$> images)
         ]
     ]
     where
       active' = S.toMisoString <$> active
-      selectRow (name, info) = a_ [href_ ("#" <> name)]
-        [ tr_ [classList_ [("table-active", active' == Just name)]]
-            [ td_ [] [text name]
-            --, td [] (if info.annotated then [FA.edit] else [])
-            ]
-        ]
+      selectRow (name, DocInfo{..}) =
+        tr_ [classList_ [("table-active", active' == Just name)], onClick (SelectDoc name)]
+          --[ a_ [href_ ("#" <> name)]
+          (td_ [] <$>
+              [ [text name]
+              , [text (toDim imageSize)]
+              , [text (showMiso category)]
+              , [text (fromMaybe "" (showModified <$> modified))]
+              ])
 
       heading str = th_ [] [text str]
+      toDim (w, h) = decimal w <> "×" <> decimal h
+      showModified modified = S.toMisoString (humanReadableTime' currentTime modified)
+
 
 
 makeTabs :: Maybe MisoString -> [(MisoString, View Action)] -> [View Action]

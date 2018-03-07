@@ -11,6 +11,7 @@ import qualified Miso.String as Str
 import Miso.Html.Property (textProp)
 import Data.JSString.RealFloat (formatFloat, FPFormat(..))
 
+
 import Util
 
 data Transform = Translate Float Float | Scale Float Float
