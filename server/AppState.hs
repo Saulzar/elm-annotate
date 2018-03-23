@@ -2,8 +2,6 @@ module AppState where
 
 
 import Common
-
-import           Data.SafeCopy
 import           System.FilePath
 
 import qualified Data.Map as M
@@ -24,10 +22,12 @@ import Data.SafeCopy
 import Document (emptyDoc, applyEdit, applyCmd)
 
 data AppState = AppState
-  { config :: Config
-  , images :: Map DocName DocInfo
+  { config    :: Config
+  , images    :: Map DocName DocInfo
   , documents :: Map DocName Document
   } deriving (Show, Eq, Generic)
+
+
 
 
 data Command where
@@ -51,6 +51,7 @@ $(deriveSafeCopy 0 'base ''Config)
 $(deriveSafeCopy 0 'base ''AppState)
 
 $(deriveSafeCopy 0 'base ''Command)
+
 
 
 
@@ -82,8 +83,49 @@ initialState config = AppState
 lookupDoc :: DocName -> AppState -> (Maybe DocInfo, Maybe Document)
 lookupDoc name AppState{..} = (M.lookup name images, M.lookup name documents)
 
-getDataset :: AppState -> Dataset
-getDataset = upcast
+getCollection :: AppState -> Collection
+getCollection = upcast
+
+
+data ExportImage = ExportImage
+  { imageFile :: DocName,
+    instances :: [Object],
+    imageSize :: (Int, Int),
+    category :: ImageCat
+  } deriving (Show, Eq, Generic)
+
+data Export = Export
+  { config :: Config
+  , images :: [ExportImage]
+  } deriving (Show, Eq, Generic)
+
+
+instance FromJSON Export
+instance FromJSON ExportImage
+
+instance ToJSON Export
+instance ToJSON ExportImage
+
+toExport :: AppState -> Export
+toExport AppState{..} = Export
+  { config = config
+  , images = M.elems $ M.intersectionWithKey exportImage images documents
+  } where
+    exportImage name info doc = ExportImage
+      { imageFile = name
+      , imageSize = info ^. #imageSize
+      , category  = info ^. #category
+      , instances = M.elems $ doc ^. #instances
+      }
+
+fromExport :: Export -> AppState
+fromExport Export {..} = AppState
+  { config = config
+  , images = M.fromList (toInfo <$> images)
+  , documents = M.fromList (toDoc <$> images)
+  } where
+    toDoc  ExportImage{..} = (imageFile, emptyDoc & #instances .~ M.fromList (zip [0..] instances))
+    toInfo ExportImage{..} = (imageFile, DocInfo {modified = Nothing, imageSize = imageSize, category = category})
 
 
 

@@ -65,6 +65,7 @@ executable server
                          wai, wai-websockets, wai-app-static, text, bytestring, safe,
                          warp, http-types, websockets, aeson, mtl, containers,
                          cmdargs, lens, generic-lens, generic-lens-labels, filepath, directory,
-                         safecopy, time, stm, stm-persist, servant-server, elm-annotate, process, megaparsec, parser-combinators, linear
+                         safecopy, time, stm, stm-persist, servant-server, elm-annotate, process,
+                         megaparsec, parser-combinators, linear, aeson-pretty
     hs-source-dirs:      server
     default-language:    Haskell2010

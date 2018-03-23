@@ -20,16 +20,6 @@ import Control.Monad.Reader
 
 import Miso (View)
 
--- data Command
---   = Select [ObjId]
---   | Pan Position Position
---   | Zoom Float Position
---   | ScaleBrush Float
---   | MakeEdit Edit
---
---   | Interact Interaction
---
---     deriving (Eq, Show, Generic)
 
 data Decoration = Brush Position deriving (Eq, Show, Generic)
 newtype Handler a = Handler { unHandler :: RWST (Input.Event, HandlerStack) [DocCmd] Env Maybe a }

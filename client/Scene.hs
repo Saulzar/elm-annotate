@@ -158,8 +158,8 @@ renderEnv env@Env{..} = div_ attrs $ pure $
 
 viewObject :: Env -> (ObjId, Object) -> View Input.Event
 viewObject env@Env{..} (objId, object) = case object of
-  ObjPoint p r -> circle p r attrs
-  ObjBox b     -> box b attrs
+  ObjPoint _ p r -> viewCircle p r attrs
+  ObjBox _ b     -> viewBox b attrs
 
   where
     attrs =

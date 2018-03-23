@@ -15,6 +15,7 @@ import Geometry
 
 type ObjId = Int
 type ClientId = Int
+type ClassId = Int
 
 type DocName = Text
 type DateTime = UTCTime
@@ -39,12 +40,17 @@ instance Monoid Edit where
   mappend e e' = Many [e, e']
 
 
-data Object = ObjPoint {position :: Vec, radius :: Float} | ObjBox Box deriving (Generic, Show, Eq)
+data Object = ObjPoint {classId :: ClassId, position :: Vec, radius :: Float}
+            | ObjBox   {classId :: ClassId, bounds :: Box }
+
+  deriving (Generic, Show, Eq)
+
+type ObjectMap = Map ObjId Object
 
 data Document = Document
   { undos :: [Edit]
   , redos :: [Edit]
-  , instances :: Map ObjId Object
+  , instances :: ObjectMap
   } deriving (Generic, Show, Eq)
 
 
@@ -58,17 +64,19 @@ data DocInfo = DocInfo
 
 
 data Config = Config
-  { extensions :: [Text]
+  { root      :: Text
+  , extensions :: [Text]
+  , classes    :: Map ClassId Text
   } deriving (Generic, Show, Eq)
 
-data Dataset = Dataset
+data Collection = Collection
   { config :: Config
   , images :: Map DocName DocInfo
   } deriving (Generic, Show, Eq)
 
 
 data ServerMsg
-  = ServerHello ClientId Dataset
+  = ServerHello ClientId Collection
   | ServerUpdateInfo DocName DocInfo
   | ServerDocument DocName DocInfo Document
   | ServerOpen (Maybe DocName) ClientId DateTime
@@ -91,7 +99,7 @@ instance FromJSON Object
 instance FromJSON Document
 instance FromJSON Config
 instance FromJSON DocInfo
-instance FromJSON Dataset
+instance FromJSON Collection
 instance FromJSON ServerMsg
 instance FromJSON ClientMsg
 
@@ -103,11 +111,13 @@ instance ToJSON Object
 instance ToJSON Document
 instance ToJSON Config
 instance ToJSON DocInfo
-instance ToJSON Dataset
+instance ToJSON Collection
 instance ToJSON ServerMsg
 instance ToJSON ClientMsg
 
 defaultConfig :: Config
 defaultConfig = Config
-  { extensions = [".png", ".jpg", ".jpeg"]
+  { root = ""
+  , extensions = [".png", ".jpg", ".jpeg"]
+  , classes    = M.fromList [(0, "default")]
   }

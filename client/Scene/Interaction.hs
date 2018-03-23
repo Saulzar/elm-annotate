@@ -12,7 +12,7 @@ import Scene.Settings (zoomBy, scaleBrush)
 
 import Document (applyEdit, applyCmd')
 
-import Input hiding (init, update)
+import Input hiding (update)
 import Svg
 import Miso (class_, View)
 
@@ -188,7 +188,7 @@ isKeyDown :: Key -> Env -> Bool
 isKeyDown k = S.member k . view (#input . #keys)
 
 areKeysDown :: [Key] -> Env -> Bool
-areKeysDown keys env = all (flip S.member down) keys where
+areKeysDown keys env = all (`S.member` down) keys where
   down = view (#input . #keys) env
 
 
@@ -272,7 +272,9 @@ pan origin = action update & #cursor .~ ("move", True) where
               #viewport %= zoomView delta origin
 
 _brushWidth = #settings . #brushWidth
-brush env = (localMouse env, view _brushWidth env)
+_currentClass = #settings . #currentClass
+
+brush env = (localMouse env, view _brushWidth env, view _currentClass env)
 
 wheelBrush :: Handler ()
 wheelBrush = do
@@ -289,23 +291,24 @@ drawPoints pos = action update
     update = void wheelBrush
       <|> do cond mouseLocal >>= transition . drawPoints
       <|> do cond (click LeftButton)
-             (pos, width) <- gets brush
-             void $ createObject (ObjPoint pos width)
+             (pos, width, class') <- gets brush
+             void $ createObject (ObjPoint class' pos width)
 
 
 drawBoxes :: Interaction
 drawBoxes = action update & #cursor .~ ("crosshair", True) where
    update = do
-     pos <- gets localMouse
+     (pos, _, class') <- gets brush
      i <- getId
-     whileButton LeftButton (drawBox i pos)
+
+     whileButton LeftButton (drawBox class' i pos)
 
 
-drawBox :: ObjId -> Position -> Interaction
-drawBox i origin = drawBox' origin where
+drawBox :: ClassId -> ObjId -> Position -> Interaction
+drawBox class' i origin = drawBox' origin where
   drawBox' pos = action update
     & #cursor   .~ ("crosshair", True)
-    & #pending  .~ [Add [(i, ObjBox $ makeBox origin pos)]]
+    & #pending  .~ [Add [(i, ObjBox class' $ makeBox origin pos)]]
 
   update = cond mouseLocal >>= transition . drawBox'
   makeBox (V2 x y) (V2 x' y') = Box (V2 (min x x') (min y y')) (V2 (max x x') (max y y'))
@@ -342,4 +345,4 @@ dragObjects selection origin = dragObjects' (origin, 1)  where
 
 renderDecoration :: Env -> Decoration -> View Input.Event
 renderDecoration Env{..} = \case
-   Brush pos -> circle pos (settings ^. #brushWidth) [class_ "brush"]
+   Brush pos -> viewCircle pos (settings ^. #brushWidth) [class_ "brush"]

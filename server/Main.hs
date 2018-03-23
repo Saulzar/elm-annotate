@@ -11,7 +11,8 @@ import System.FilePath
 import System.Directory
 import System.IO
 
-import Options as Opt
+import Data.Aeson.Encode.Pretty (encodePretty)
+import Data.Aeson (eitherDecode)
 
 import qualified Data.Map as M
 import qualified Data.Set as S
@@ -34,10 +35,10 @@ import Servant.Utils.StaticFiles
 
 import qualified Types as T
 import qualified Document as Doc
+import qualified Options as Opt
 
 import Types
 import AppState
-
 import ImageInfo
 
 
@@ -62,13 +63,14 @@ data Env    = Env
   { clients     :: Clients
   , documents   :: Documents
   , state       :: Log AppState
-  , root        :: FilePath
   , logChan     :: TChan LogMsg
   } deriving (Generic)
 
 
-data Error = LogError String | RootDirectoryMissing FilePath | DecodeError ByteString
+
+data Error = LogError String | DecodeError String
    deriving (Show, Typeable)
+
 
 instance Exception Error
 
@@ -79,7 +81,7 @@ nextClient m = fromMaybe 0 (succ . fst . fst <$>  M.maxViewWithKey m)
 
 sendHello :: Env -> ClientId -> STM ()
 sendHello env clientId = do
-  ds <- getDataset <$> readLog (env ^. #state)
+  ds <- getCollection <$> readLog (env ^. #state)
   sendClient env clientId (ServerHello clientId ds)
 
 
@@ -124,9 +126,9 @@ disconnectClient env clientId = atomically $ do
 
 
 tryDecode :: (MonadIO m, FromJSON a) => ByteString -> m a
-tryDecode str = case decode str of
-    Just req -> return req
-    Nothing -> liftIO (throw $ DecodeError str)
+tryDecode str = case eitherDecode str of
+    Right a -> return a
+    Left err -> liftIO (throw $ DecodeError err)
 
 
 
@@ -296,11 +298,11 @@ type Api =
   :<|> Raw
 
 
-server :: Env -> Server Api
-server env =
+server :: FilePath -> Env -> Server Api
+server root env =
   withDefault (websocketServer env)
-  :<|> serveDirectoryWebApp (env ^. #root)
-  :<|> serveDirectoryWebApp "html"
+    :<|> serveDirectoryWebApp root
+    :<|> serveDirectoryWebApp "html"
 
 
 withDefault :: WS.ServerApp -> Server Raw
@@ -360,33 +362,40 @@ startLogger handle = do
 
   return logChan
 
+
+readRoot :: Log AppState -> IO FilePath
+readRoot state = Text.unpack . view (#config . #root) <$> atomically (readLog state)
+
 main :: IO ()
 main = do
   Opt.Options {..} <- Opt.getArgs
   logChan <- startLogger stdout
 
-  exists <- doesDirectoryExist root
-  unless exists $ throw (RootDirectoryMissing root)
+  create' <- forM create $ \root -> do
+    createDirectoryIfMissing True root
+    return (initialState (defaultConfig & #root .~ (fromString root)))
 
-  let initial = initialState defaultConfig
-      logFile = root </> "annotations.db"
+  import' <- forM importJson $ \file ->
+    BS.readFile file >>= fmap fromExport . tryDecode
 
-  state <- if discard
-    then freshLog initial logFile
-    else openLog initial logFile >>= either (throw . LogError) return
+  state <- case create' <|> import' of
+    Just initial -> freshLog initial database
+    Nothing      -> openLog database >>= either (throw . LogError) return
+
+  root <- readRoot state
 
   clients   <- atomically (newTVar M.empty)
   documents <- atomically (newTVar M.empty)
 
-
   atomically $ do
     config <- view #config <$> readLog state
-
     existing <- view #images <$> readLog state
     images <- unsafeIOToSTM (findNewImages config root existing)
     updateLog state (CmdImages images)
 
-  print =<< atomically (readLog state)
+  forM_ exportJson $ \file -> do
+    atomically (readLog state) >>= BS.writeFile file . encodePretty . toExport
+    putStrLn ("exported state to: " <> file)
 
-
-  Warp.run 3000 $ serve (Proxy @ Api) (server $ Env {..})
+  -- print =<< atomically (readLog state)
+  Warp.run 3000 $ serve (Proxy @ Api) (server root $ Env {..})

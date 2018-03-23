@@ -82,8 +82,8 @@ accumEdits edit (inverses, content) = do
 
 transformObj :: Float -> Vec -> Object -> Object
 transformObj s t = \case
-  ObjPoint p r -> ObjPoint (p + t) (r * s)
-  ObjBox b     -> ObjBox $ b & boxExtents %~
+  ObjPoint c p r -> ObjPoint c (p + t) (r * s)
+  ObjBox c b     -> ObjBox c $ b & boxExtents %~
     (\Extents{..} -> Extents (centre + t) (extents ^* s))
 
 patchEdit :: Edit -> Content -> Maybe (Edit, Content)

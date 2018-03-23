@@ -6,11 +6,12 @@ import Geometry
 
 
 data Settings = Settings
-  { brushWidth :: Float
+  { brushWidth   :: Float
+  , currentClass :: Int
   } deriving (Generic, Show, Eq)
 
 init :: Settings
-init = Settings { brushWidth = 20 }
+init = Settings { brushWidth = 20, currentClass = 0 }
 
 
 

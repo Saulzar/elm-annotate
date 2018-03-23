@@ -54,7 +54,7 @@ data NetworkState = Disconnected | Connected | Ready ClientId deriving (Show, Ge
 
 
 data Model = Model
-  { dataset   :: Dataset
+  { dataset   :: Collection
   , network   :: NetworkState
   , activeTab :: Maybe MisoString
   , scene     :: Scene.Scene
@@ -69,7 +69,7 @@ data Model = Model
 
 initialModel :: UTCTime -> Model
 initialModel t =  Model
-  { dataset = Dataset defaultConfig []
+  { dataset = Collection defaultConfig []
   , network = Disconnected
   , activeTab = Nothing
   , scene = Scene.init
